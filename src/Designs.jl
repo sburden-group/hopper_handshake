@@ -99,9 +99,9 @@ function bounds()
         0.04        # lower bound on compression spring active coils, likely won't activate
         0.1         # lower bound on compression spring wire diameter, likely won't activate     
         0.5         # lower bound on compression spring index, likely won't activate
-        0.1         # lower bound on compression spring rest length, I hope this won't activate
+        1.0         # lower bound on compression spring rest length, I hope this won't activate
         0.5         # lower bound on proximal link length
-        0.5         # lower bound on distal link length         
+        1.0         # lower bound on distal link length         
     ];
     upper_bound = [
         2.0         # upper bound on extension spring active coils, likely won't activate
@@ -116,7 +116,7 @@ function bounds()
         2.0         # upper bound on compression spring wire diameter, likely won't activate     
         4.0         # upper bound on compression spring index, likely won't activate
         5.0         # upper bound on compression spring rest length, I hope this won't activate
-        2.0         # upper bound on proximal link length
+        1.0         # upper bound on proximal link length
         3.0         # upper bound on distal link length         
     ];
     
@@ -127,41 +127,67 @@ function spring_constraints(p::Params{T}) where T<:Real
     η = 1.2 # factor of safety for spring loading
     σ1 = ExtensionSprings.shear_stress(p.s1,2*p.l1)/2
     σ2 = ExtensionSprings.shear_stress(p.s2,2*p.l1)/2
-    σ3 = CompressionSprings.shear_stress(p.s3,2*p.l1)/2
+    ΔL = p.s3.L0-p.l2-p.l1
+    minimum_compression = ΔL*exp(25ΔL)/(1+exp(25ΔL))
+    σ3 = CompressionSprings.shear_stress(p.s3,minimum_compression+2*p.l1)/2
     Array{T}([
         -ExtensionSprings.yield_deflection(p.s1,η)+2*p.l1
         -ExtensionSprings.yield_deflection(p.s2,η)+2*p.l1
-        -CompressionSprings.yield_deflection(p.s3,η)+2*p.l1
-        -CompressionSprings.maximum_deflection(p.s3)+2*p.l1 
+        -CompressionSprings.yield_deflection(p.s3,η)+2*p.l1+minimum_compression
+        -CompressionSprings.maximum_deflection(p.s3)+2*p.l1+minimum_compression
         η*ExtensionSprings.goodman_criterion(σ1,σ1) - one(T)
         η*ExtensionSprings.goodman_criterion(σ2,σ2) - one(T)
         η*CompressionSprings.goodman_criterion(σ3,σ3) - one(T) # this is probably conservative, but may need to be checked more carefully
-        -ExtensionSprings.outer_diameter(p.s1)-.04
-        -ExtensionSprings.outer_diameter(p.s2)-.04
-        -CompressionSprings.outer_diameter(p.s3)-0.015
+        ExtensionSprings.outer_diameter(p.s1)-.05
+        ExtensionSprings.outer_diameter(p.s2)-.05
+        CompressionSprings.outer_diameter(p.s3)-0.015
     ])
 end
 
 function kinematic_constraints(p::Params{T}) where T<:Real
     Array{T}([
         -p.l1-p.l2+.27   # total link length lower bound
-        -p.l1+p.l2-.13   # difference of link lengths, upper bound
-        p.l1-p.l2+.03    # difference of link lengths, lower bound
+        p.l2-p.l1-.13    # minimum leg length upper bound
     ])
 end
 
-function constraints(x::Vector{T}) where T<:Real
+function nlconstraints(p::Params{T}) where T<:Real
+    vcat(spring_constraints(p), kinematic_constraints(p))
+end
+
+function nlconstraints(x::Vector{T}) where T<:Real
     p = unpack(x)
+    nlconstraints(p)
+end
+
+function nlconstraints_jacobian(x::Vector{T}) where T<:Real
+    ForwardDiff.jacobian(nlconstraints,x)
+end
+
+function nlconstraints_hessian(x::Vector{T},h::T) where T<:Real
+    return FiniteDifferences.central_difference(nlconstraints_jacobian,x,h)
+end
+
+function bound_constraints(x::Vector{T}) where T<:Real
     lb,ub = bounds()
-    vcat(-x+lb,x-ub,spring_constraints(p), kinematic_constraints(p))
+    vcat(-x+lb,x-ub)
+end
+
+function bound_constraints(p::Params{T}) where T<:Real
+    bound_constraints(pack(p))
+end
+
+function constraints(p::Params{T}) where T<:Real
+    vcat(bound_constraints(p),nlconstraints(p))
+end
+
+function constraints(x::Vector{T}) where T<:Real
+    vcat(bound_constraints(x),nlconstraints(x))
 end
 
 function constraints_jacobian(x::Vector{T}) where T<:Real
-    return ForwardDiff.jacobian(constraints,x)
-end
-
-function constraints_hessian(x::Vector{T},h::T) where T<:Real
-    return FiniteDifferences.central_difference(constraints_jacobian,x,h)
+    In = diagm(ones(length(x)))
+    return vcat(-In, In, nlconstraints_jacobian(x))
 end
 
 """

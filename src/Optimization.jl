@@ -24,21 +24,13 @@ end
 """ Gradient of cost """
 function cost_grad(x::Vector{T}, λ) where {T <: Real}
     grad = λ*Hopper.cost_grad(x)
-    grad += (1-λ)*Handshake.cost_grad(x)
+    grad += (1.0-λ)*Handshake.cost_grad(x)
 end
 
 """ Hessian of cost"""
 function cost_hessian(x::Vector{T}, λ, h::T) where {T <: Real}
     hess = λ*Hopper.cost_hessian(x,h)
-    hess += (1-λ)*Handshake.cost_hessian(x,h)
-end
-
-
-""" Jacobian of active affine constraints """
-function active_constraints_jac(x::Vector{T}; tol=0.) where {T<:Real}
-    r = Designs.constraints(x)
-    active_set = [i for i=1:length(r) if -tol <= r[i]]
-    return ForwardDiff.jacobian(Designs.constraints,x)[active_set,:]
+    hess += (1.0-λ)*Handshake.cost_hessian(x,h)
 end
 
 """ Test for stationarity, formulated as a Convex program.
@@ -50,9 +42,12 @@ function stationarity_test(x::Vector{T}; tol=0.) where {T<:Real}
     ∇f2 = Handshake.cost_grad(x)
     g = Designs.constraints(x)
     ∇g = Designs.constraints_jacobian(x)
+    active_set = [i for i=1:length(g) if g[i]>= -tol]
+    g = g[active_set]
+    ∇g = ∇g[active_set,:]
 
     model = JuMP.Model(SCS.Optimizer)
-    set_optimizer_attribute(model, "verbose", 1)
+    set_optimizer_attribute(model, "verbose", 0)
     @variable(model, λ)
     @variable(model, ϵ)
     @variable(model, μ[i=1:length(g)])
@@ -60,7 +55,7 @@ function stationarity_test(x::Vector{T}; tol=0.) where {T<:Real}
     @constraint(model, λ >= 0)
     @constraint(model, λ <= 1)
     @constraint(model, μ .>= 0)
-    @constraint(model, μ.*g .== zeros(length(g)))
+    # @constraint(model, μ.*g .==0)
     y = @expression(model, λ*∇f1+(1-λ)*∇f2+∇g'*μ)
     @constraint(model, [ϵ;y] in SecondOrderCone())
     @objective(model, Min, ϵ)
@@ -68,7 +63,48 @@ function stationarity_test(x::Vector{T}; tol=0.) where {T<:Real}
     return (value(ϵ), value.(λ))
 end
 
-function lsp_optimize(x0,λ;ftol_rel=1e-12,maxtime=10.)
+function pareto_tangent(x::Vector{T}; tol=0.) where {T<:Real}
+    ∇f1 = Hopper.cost_grad(x)
+    Hf1 = Hopper.cost_hessian(x,1e-9)
+    ∇f2 = Handshake.cost_grad(x)
+    Hf2 = Handshake.cost_hessian(x,1e-9)
+    g = Designs.constraints(x)
+    ∇g = Designs.constraints_jacobian(x)
+    Hg = FiniteDifferences.central_difference(Designs.constraints_jacobian,x,1e-9)
+    active_set = [i for i=1:length(g) if g[i]>= -tol]
+
+    model = JuMP.Model(SCS.Optimizer)
+    set_optimizer_attribute(model, "verbose", 0)
+    @variable(model, λ)
+    @variable(model, ϵ)
+    @variable(model, μ[i=1:length(active_set)])
+    @variable(model, X[1:length(x),1:length(x)], PSD)
+    @constraint(model, ϵ >= 0)
+    @constraint(model, λ >= 0)
+    @constraint(model, λ <= 1)
+    @constraint(model, μ .>= 0)
+    first_order = @expression(model, λ*∇f1+(1-λ)*∇f2+∇g[active_set,:]'*μ)
+    @constraint(model, [ϵ;first_order] ∈ SecondOrderCone())
+    @objective(model, Min, ϵ)
+    JuMP.optimize!(model)
+
+    λ = value(λ)
+    μ = value.(μ)
+    hess = λ*Hf1 + (1-λ)*Hf2 + sum([μ[i]*Hg[active_set[i],:,:] for i=1:length(active_set)])
+    δx = hess\(∇f2-∇f1); δx = δx/norm(δx)
+    model = JuMP.Model(Ipopt.Optimizer)
+    @variable(model, h)
+    @constraint(model, h>=0)
+    forward = @expression(model, [g[i]+h*dot(∇g[i,:],δx)+h^2/2*dot(δx,Hg[i,:,:]*δx) for i=1:length(g)])
+    backward = @expression(model, [g[i]-h*dot(∇g[i,:],δx)+h^2/2*dot(δx,Hg[i,:,:]*δx) for i=1:length(g)])
+    @constraint(model, forward .<= 0)
+    @constraint(model, backward .<= 0)
+    @objective(model, Max, h)
+    JuMP.optimize!(model)
+    return value(h), δx
+end
+
+function lsp_optimize(x0,λ;ftol_rel=1e-12,maxtime=10.,tol=0.)
     f(x, grad) = begin
         try
             if length(grad) > 0
@@ -82,11 +118,9 @@ function lsp_optimize(x0,λ;ftol_rel=1e-12,maxtime=10.)
     end
     g(result,x,grad) = begin
         try
-            result[:] = Designs.constraints(x)[:]
+            result[:] = Designs.nlconstraints(x)[:]
             if length(grad) > 0
-                grad[:,:] = ForwardDiff.jacobian(
-                    Designs.constraints, x    
-                )'[:,:]
+                grad[:,:] = Designs.nlconstraints_jacobian(x)'[:,:]
             end
         catch e
             print(e)
@@ -95,9 +129,49 @@ function lsp_optimize(x0,λ;ftol_rel=1e-12,maxtime=10.)
     end
     opt = NLopt.Opt(:LD_SLSQP,length(x0))
     opt.ftol_rel = ftol_rel
+    lb,ub = Designs.bounds()
+    opt.lower_bounds = lb
+    opt.upper_bounds = ub
     opt.maxtime=maxtime
     opt.min_objective = f
-    inequality_constraint!(opt, g, zeros(length(Designs.constraints(x0))))
+    inequality_constraint!(opt, g, tol*ones(length(Designs.nlconstraints(x0))))
+    (minf, minx, ret) = optimize(opt, x0)
+end
+
+function lsp_optimize_global(x0,λ;ftol_rel=1e-12,maxtime=10.)
+    f(x,grad) = begin
+        try
+            return cost(x,λ)
+        catch e
+            print(e)
+            throw(e)
+        end
+    end
+    g(result,x,grad) = begin
+        try
+            result[:] = Designs.nlconstraints(x)[:]
+            if length(grad) > 0
+                grad[:,:] = Designs.nlconstraints_jacobian(x)'[:,:]
+            end
+        catch e
+            print(e)
+            throw(e)
+        end
+    end
+    opt = NLopt.Opt(:GN_ISRES,length(x0))
+    opt.maxtime=maxtime
+    opt.min_objective = f
+    opt.ftol_rel = ftol_rel
+    opt.xtol_rel = sqrt(ftol_rel)
+    # local_opt = NLopt.Opt(:GN_DIRECT,length(x0))
+    # local_opt.ftol_rel = ftol_rel
+    # local_opt.xtol_rel = sqrt(ftol_rel)
+    # local_opt.maxtime = maxtime/10.
+    lb,ub = Designs.bounds()
+    opt.lower_bounds = lb
+    opt.upper_bounds = ub
+    # NLopt.local_optimizer!(opt,local_opt)
+    NLopt.inequality_constraint!(opt, g, zeros(length(Designs.nlconstraints(x0))))
     (minf, minx, ret) = optimize(opt, x0)
 end
 
@@ -151,9 +225,9 @@ function constraint_optimize(
     end
     g(result,x,grad) = begin
         try
-            result[:] = vcat(Designs.constraints(x),f2(x)-ϵ)
+            result[:] = vcat(Designs.nlconstraints(x),f2(x)-ϵ)
             if length(grad) > 0
-                grad[:,:] = vcat(Designs.constraints_jacobian(x),Df2(x)')'[:,:]
+                grad[:,:] = vcat(Designs.nlconstraints_jacobian(x),Df2(x)')'[:,:]
             end
         catch e
             print(e)
@@ -163,106 +237,12 @@ function constraint_optimize(
     opt = NLopt.Opt(:LD_SLSQP,length(x0))
     opt.ftol_rel = ftol_rel
     opt.maxtime=maxtime
+    lb,ub = Designs.bounds()
+    opt.lower_bounds = lb
+    opt.upper_bounds = ub
     opt.min_objective = f
-    inequality_constraint!(opt, g, zeros(length(Designs.constraints(x0))+1))
+    inequality_constraint!(opt, g, zeros(length(Designs.nlconstraints(x0))+1))
     (minf, minx, ret) = optimize(opt, x0)
-end
-
-function constrain_handshake(initial, Δ, N)
-    x0 = initial
-    x = Array{Array{Float64,1},1}()
-    θ = Array{Float64,1}()
-    f1 = Array{Float64,1}()
-    f2 = Array{Float64,1}()
-    stationarity = Array{Float64,1}()
-    append!(x,[x0])
-    σ,λ = stationarity_test(x0)
-    append!(θ,λ[1])
-    append!(f1,Hopper.cost(x0))
-    append!(f2,Handshake.cost(x0))
-    append!(stationarity, σ)
-    count = 0
-    while count < N
-        count += 1
-        t0 = time()
-        hopper_optimize(x,ϵ) = begin
-            (minf,minx,ret) = constraint_optimize(
-                Hopper.cost,
-                Hopper.cost_grad,
-                Handshake.cost,
-                Handshake.cost_grad,
-                x,
-                ϵ;
-                maxtime=60.,
-            )
-            print(ret); print("\n")
-            return minx
-        end
-        ϵ = f2[end]-Δ
-        minx = hopper_optimize(x[end],ϵ)
-        (σ,λ) = stationarity_test(minx)
-        print(string("Initial guess error: ", norm(x[end]-minx), "\n"))
-        append!(x,[minx])
-        append!(f1,Hopper.cost(minx))
-        append!(f2,Handshake.cost(minx))
-        print(string("x = ", x[end], "\n"))
-        print(string("Hopper: ", f1[end], "\n"))
-        print(string("Handshake: ", f2[end], "\n"))
-        append!(θ,λ)
-        append!(stationarity,σ)
-        print(string("Stationarity test: ", stationarity[end], "\n"))
-        print(string("Solution time: ", time()-t0, " seconds.\n"))
-    end
-    return f1, f2, reduce(hcat,x), stationarity
-end
-
-
-function constrain_hopper(initial, Δ, N)
-    x0 = initial
-    x = Array{Array{Float64,1},1}()
-    θ = Array{Float64,1}()
-    f1 = Array{Float64,1}()
-    f2 = Array{Float64,1}()
-    stationarity = Array{Float64,1}()
-    append!(x,[x0])
-    σ,λ = stationarity_test(x0)
-    append!(θ,λ[1])
-    append!(f1,Hopper.cost(x0))
-    append!(f2,Handshake.cost(x0))
-    append!(stationarity, σ)
-    count = 0
-    while count < N
-        count += 1
-        t0 = time()
-        handshake_optimize(x,ϵ) = begin
-            (minf,minx,ret) = constraint_optimize(
-                Handshake.cost,
-                Handshake.cost_grad,
-                Hopper.cost,
-                Hopper.cost_grad,
-                x,
-                ϵ;
-                maxtime=60.,
-            )
-            print(ret); print("\n")
-            return minx
-        end
-        ϵ = f1[end]-Δ
-        minx = handshake_optimize(x[end],ϵ)
-        (σ,λ) = stationarity_test(minx)
-        print(string("Initial guess error: ", norm(x[end]-minx), "\n"))
-        append!(x,[minx])
-        append!(f1,Hopper.cost(minx))
-        append!(f2,Handshake.cost(minx))
-        print(string("x = ", x[end], "\n"))
-        print(string("Hopper: ", f1[end], "\n"))
-        print(string("Handshake: ", f2[end], "\n"))
-        append!(θ,λ[1])
-        append!(stationarity,σ)
-        print(string("Stationarity test: ", stationarity[end], "\n"))
-        print(string("Solution time: ", time()-t0, " seconds.\n"))
-    end
-    return f1, f2, reduce(hcat,x), stationarity
 end
 
 """ A pareto ranking algorithm, definitely naive. """

@@ -47,22 +47,28 @@ end
 function potential_energy(q::Vector{T},p::Designs.Params) where T
     g = 9.81
     l = leg_length(q,p)
+    θ1 = q[θ1_idx]
+    θ2 = q[θ2_idx]
 
     s1_fl = Designs.ExtensionSprings.free_length(p.s1)
-    x1 = Array{T}([p.l1*sin(q[θ1_idx]),-p.l1*cos(q[θ1_idx])])       # position of knee 1
-    x2 = Array{T}([s1_fl*sin(p.s1_r),-s1_fl*cos(p.s1_r)])           # knee 1 spring anchor point
-    δx = (1.0-.015)*x2-x1
+    joint_location = Array{T}([p.l1*sin(θ1),-p.l1*cos(θ1)])
+    r = (p.l1+s1_fl+.015)
+    fixed_end = Array{T}([r*sin(p.s1_r),-r*cos(p.s1_r)]) 
+    free_end = joint_location + .015*(fixed_end-joint_location)/norm(fixed_end-joint_location)
+    δx = fixed_end-free_end
     s1_energy = Designs.ExtensionSprings.spring_energy(p.s1,norm(δx)-s1_fl)
 
     s2_fl = Designs.ExtensionSprings.free_length(p.s2)
-    y1 = Array{T}([p.l1*sin(q[θ2_idx]),-p.l1*cos(q[θ2_idx])])       # position of knee 2
-    y2 = Array{T}([s2_fl*sin(p.s2_r),-s2_fl*cos(p.s2_r)])           # knee 2 spring anchor point
-    δy = (1.0-.015)*y2-y1
-    s2_energy = Designs.ExtensionSprings.spring_energy(p.s2,norm(δy)-s2_fl)
+    joint_location = Array{T}([p.l1*sin(θ2),-p.l1*cos(θ2)])
+    r = (p.l1+s2_fl+.015)
+    fixed_end = Array{T}([r*sin(p.s2_r),-r*cos(p.s2_r)]) 
+    free_end = joint_location + .015*(fixed_end-joint_location)/norm(fixed_end-joint_location)
+    δx = fixed_end-free_end
+    s2_energy = Designs.ExtensionSprings.spring_energy(p.s2,norm(δx)-s2_fl)
 
     s3_energy = Designs.CompressionSprings.spring_energy(p.s3,p.s3.L0-l)
 
-    return m*g*q[xf_idx]+s1_energy+s2_energy+s3_energy
+    return T(m*g*q[xf_idx]+s1_energy+s2_energy+s3_energy)
 end
 
 # kinetic energy
