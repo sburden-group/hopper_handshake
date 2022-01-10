@@ -13,12 +13,10 @@ struct Spring{T<:Real}
     L0::T  # free length
 end
 
-# all data is for 302 stainless steel and given in N/m^2
-const G = 68.95e9 # shear modulus
-const E = 190e9 # elastic modulus
-const Ssy = 275e6 # yield strength
-const Sut = 620e6 # ultimate tensile strength
-const Ssu = .67*Sut # torsional rupture strength
+const G = 80e9 # shear modulus
+const E = 210e9 # elastic modulus
+const Ssy = 2170e6 # yield strength
+const Ssu = .45*Ssy # torsional rupture strength
 const Ssa = 241e6 # amplitude fatigue component (Zimmerli)
 const Ssm = 379e6 # mean fatigue component (Zimmerli) 
 const Sse = Ssa/(1-(Ssm/Ssu)^2) # shear endurance limit (Zimmerli)

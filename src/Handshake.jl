@@ -66,7 +66,7 @@ function potential_energy(q::Vector{T},p::Designs.Params) where T
     δx = fixed_end-free_end
     s2_energy = Designs.ExtensionSprings.spring_energy(p.s2,norm(δx)-s2_fl)
 
-    s3_energy = Designs.CompressionSprings.spring_energy(p.s3,p.s3.L0-l)
+    s3_energy = Designs.CompressionSprings.spring_energy(p.s3,p.l1+p.l2-l)
 
     return T(m*g*q[xf_idx]+s1_energy+s2_energy+s3_energy)
 end

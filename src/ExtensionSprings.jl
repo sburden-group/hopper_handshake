@@ -11,15 +11,13 @@ struct Spring{T<:Real}
     C::T  # spring
 end
 
-# all data is for 302 stainless steel and given in N/m^2
-const G = 68.95e9 # shear modulus
-const E = 193e9 # elastic modulus
-const Ssy = 275e6 # yield strength
-const Sut = 620e6# ultimate tensile strength
-const Ssu = .67*Sut # torsional rupture strength
+const G = 80e9 # shear modulus
+const E = 210e9 # elastic modulus
+const Ssy = 2170e6 # yield strength
+const Ssu = .45*Ssy # torsional rupture strength estimate
 const Ssa = 241e6 # amplitude fatigue component (Zimmerli)
 const Ssm = 379e6 # mean fatigue component (Zimmerli) 
-const Sse = Ssa/(1-(Ssm/Ssu)^2) # shear undurance limit (Zimmerli)
+const Sse = Ssa/(1-(Ssm/Ssu)^2) # shear endurance limit (Zimmerli)
 
 function outer_diameter(s::Spring)
     mean_diameter = s.C*s.d
@@ -82,7 +80,7 @@ function shear_stress(s::Spring,Δx) # should convert these to MPA or GPA for sc
 end
 
 function yield_deflection(s::Spring,n)
-    σ = Ssy/n
+    σ = .45*Ssy/n
     berg = bergstrasser_factor(s)
     F = σ*(pi*s.d^2)/(berg*8*s.C)
     Fi = mean_initial_tension(s)

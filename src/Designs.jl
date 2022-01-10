@@ -89,33 +89,33 @@ How do I want to organize this code??
 function bounds()
     lower_bound = [
         0.04        # lower bound on extension spring active coils, likely won't activate
-        0.1         # lower bound on extension spring wire diameter, likely won't activate
+        0.5         # lower bound on extension spring wire diameter, likely won't activate
         0.5         # lower bound on extension spring index, likely won't activate
         pi/2        # lower bound on right side extension spring rest angle
         0.04
-        0.1
+        0.5
         0.5
         -3pi/4
-        0.04        # lower bound on compression spring active coils, likely won't activate
-        0.1         # lower bound on compression spring wire diameter, likely won't activate     
-        0.5         # lower bound on compression spring index, likely won't activate
+        0.04        # lower bound on compression spring active coils
+        0.5         # lower bound on compression spring wire diameter     
+        0.5         # lower bound on compression spring index
         1.0         # lower bound on compression spring rest length, I hope this won't activate
         0.5         # lower bound on proximal link length
         1.0         # lower bound on distal link length         
     ];
     upper_bound = [
-        2.0         # upper bound on extension spring active coils, likely won't activate
-        2.0         # upper bound on extension spring wire diameter, likely won't activate
-        4.0         # upper bound on extension spring index, likely won't activate
+        1.5         # upper bound on extension spring active coils
+        1.6         # upper bound on extension spring wire diameter
+        1.5         # upper bound on extension spring index
         3pi/4       # upper bound on right side extension spring rest angle
-        2.0
-        2.0
-        4.0
+        1.5
+        1.6
+        1.5
         -pi/2
-        2.0         # upper bound on compression spring active coils, likely won't activate
-        2.0         # upper bound on compression spring wire diameter, likely won't activate     
-        4.0         # upper bound on compression spring index, likely won't activate
-        5.0         # upper bound on compression spring rest length, I hope this won't activate
+        1.5         # upper bound on compression spring active coils, likely won't activate
+        1.6         # upper bound on compression spring wire diameter, likely won't activate     
+        1.5         # upper bound on compression spring index, likely won't activate
+        4.0         # upper bound on compression spring rest length, I hope this won't activate
         1.0         # upper bound on proximal link length
         3.0         # upper bound on distal link length         
     ];
@@ -125,22 +125,26 @@ end
 
 function spring_constraints(p::Params{T}) where T<:Real
     η = 1.2 # factor of safety for spring loading
-    σ1 = ExtensionSprings.shear_stress(p.s1,2*p.l1)/2
-    σ2 = ExtensionSprings.shear_stress(p.s2,2*p.l1)/2
-    ΔL = p.s3.L0-p.l2-p.l1
-    minimum_compression = ΔL*exp(25ΔL)/(1+exp(25ΔL))
-    σ3 = CompressionSprings.shear_stress(p.s3,minimum_compression+2*p.l1)/2
+    # σ1 = ExtensionSprings.shear_stress(p.s1,2*p.l1)/2
+    # σ2 = ExtensionSprings.shear_stress(p.s2,2*p.l1)/2
+    # minimum_compression = ΔL*exp(25ΔL)/(1+exp(25ΔL))
+    # σ3 = CompressionSprings.shear_stress(p.s3,minimum_compression+2*p.l1)/2
     Array{T}([
         -ExtensionSprings.yield_deflection(p.s1,η)+2*p.l1
         -ExtensionSprings.yield_deflection(p.s2,η)+2*p.l1
-        -CompressionSprings.yield_deflection(p.s3,η)+2*p.l1+minimum_compression
-        -CompressionSprings.maximum_deflection(p.s3)+2*p.l1+minimum_compression
-        η*ExtensionSprings.goodman_criterion(σ1,σ1) - one(T)
-        η*ExtensionSprings.goodman_criterion(σ2,σ2) - one(T)
-        η*CompressionSprings.goodman_criterion(σ3,σ3) - one(T) # this is probably conservative, but may need to be checked more carefully
-        ExtensionSprings.outer_diameter(p.s1)-.05
-        ExtensionSprings.outer_diameter(p.s2)-.05
+        -CompressionSprings.yield_deflection(p.s3,η)+2*p.l1
+        -CompressionSprings.maximum_deflection(p.s3)+2*p.l1
+        # η*ExtensionSprings.goodman_criterion(σ1,σ1) - one(T) # the fatigue requirements are onerous for sure
+        # η*ExtensionSprings.goodman_criterion(σ2,σ2) - one(T)
+        # η*CompressionSprings.goodman_criterion(σ3,σ3) - one(T) # this is probably conservative, but may need to be checked more carefully
+        # ExtensionSprings.outer_diameter(p.s1)-.03
+        # ExtensionSprings.outer_diameter(p.s2)-.03
         CompressionSprings.outer_diameter(p.s3)-0.015
+        p.s3.L0 - p.l1 - p.l2
+        -ExtensionSprings.free_length(p.s1)+.08
+        -ExtensionSprings.free_length(p.s2)+.08
+        ExtensionSprings.free_length(p.s1)-.127
+        ExtensionSprings.free_length(p.s2)-.127
     ])
 end
 

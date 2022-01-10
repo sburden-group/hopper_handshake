@@ -55,12 +55,54 @@ function stationarity_test(x::Vector{T}; tol=0.) where {T<:Real}
     @constraint(model, λ >= 0)
     @constraint(model, λ <= 1)
     @constraint(model, μ .>= 0)
-    # @constraint(model, μ.*g .==0)
     y = @expression(model, λ*∇f1+(1-λ)*∇f2+∇g'*μ)
     @constraint(model, [ϵ;y] in SecondOrderCone())
     @objective(model, Min, ϵ)
     JuMP.optimize!(model)
     return (value(ϵ), value.(λ))
+end
+
+function second_order_test(x::Vector{T}; tol=0.) where {T<:Real}
+    ϵ, λ = stationarity_test(x;tol=tol)
+    ∇f1 = Hopper.cost_grad(x)
+    Hf1 = Hopper.cost_hessian(x,1e-9)
+    ∇f2 = Handshake.cost_grad(x)
+    Hf2 = Handshake.cost_hessian(x,1e-9)
+    g = Designs.constraints(x)
+    ∇g = Designs.constraints_jacobian(x)
+    Hg = FiniteDifferences.central_difference(Designs.constraints_jacobian,x,1e-9)
+    active_set = [i for i=1:length(g) if g[i]>= -tol]
+    g = g[active_set]
+    ∇g = ∇g[active_set,:]
+
+    model = JuMP.Model(SCS.Optimizer)
+    set_optimizer_attribute(model, "verbose", 0)
+    @variable(model, λ)
+    @variable(model, ϵ)
+    @variable(model, μ[i=1:length(g)])
+    @constraint(model, ϵ >= 0)
+    @constraint(model, λ >= 0)
+    @constraint(model, λ <= 1)
+    @constraint(model, μ .>= 0)
+    y = @expression(model, λ*∇f1+(1-λ)*∇f2+∇g'*μ)
+    @constraint(model, [ϵ;y] in SecondOrderCone())
+    @objective(model, Min, ϵ)
+    JuMP.optimize!(model)
+
+    λ = value(λ)
+    μ = value.(μ)
+    first_order = λ*∇f1+(1-λ)*∇f2
+    second_order = λ*Hf1 + (1-λ)*Hf2
+    model = JuMP.Model(Ipopt.Optimizer)
+    @variable(model, δx[i=1:length(x)])
+    @variable(model, ϵ)
+    @constraint(model, ϵ <= 0)
+    @constraint(model, dot(δx,δx) == 1)
+    @constraint(model, ∇g*δx .<= 0)
+    @constraint(model, ϵ == dot(first_order,δx) + dot(δx,second_order*δx)/2)
+    @objective(model, Min, ϵ)
+    JuMP.optimize!(model)
+    return value(ϵ), value.(δx)
 end
 
 function pareto_tangent(x::Vector{T}; tol=0.) where {T<:Real}
