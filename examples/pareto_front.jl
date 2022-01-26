@@ -16,6 +16,6 @@ scatter(x[1,non_dominated],x[2,non_dominated])
 
 using DataFrames
 using CSV
-data = hcat(hopper,handshake,x[:,non_dominated]')
-df = DataFrame(data,columns=["Hopper","Handshake","L1","L2"])
-CSV.write(df,"no_spring_pareto.csv")
+data = hcat(hopper[non_dominated],handshake[non_dominated],x[:,non_dominated]')
+df = DataFrame(data,["Hopper","Handshake","L1","L2"])
+CSV.write("no_spring_pareto.csv",df)
