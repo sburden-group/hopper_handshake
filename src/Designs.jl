@@ -134,11 +134,6 @@ function spring_constraints(p::Params{T}) where T<:Real
         -ExtensionSprings.yield_deflection(p.s2,η)+2*p.l1
         -CompressionSprings.yield_deflection(p.s3,η)+2*p.l1
         -CompressionSprings.maximum_deflection(p.s3)+2*p.l1
-        # η*ExtensionSprings.goodman_criterion(σ1,σ1) - one(T) # the fatigue requirements are onerous for sure
-        # η*ExtensionSprings.goodman_criterion(σ2,σ2) - one(T)
-        # η*CompressionSprings.goodman_criterion(σ3,σ3) - one(T) # this is probably conservative, but may need to be checked more carefully
-        # ExtensionSprings.outer_diameter(p.s1)-.03
-        # ExtensionSprings.outer_diameter(p.s2)-.03
         CompressionSprings.outer_diameter(p.s3)-0.015
         p.s3.L0 - p.l1 - p.l2
         -ExtensionSprings.free_length(p.s1)+.08

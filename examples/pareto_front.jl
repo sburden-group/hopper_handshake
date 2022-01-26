@@ -149,11 +149,11 @@ columns = [
     "s3 max",
 ]
 
-spring_data = DataFrame(data,columns)
-CSV.write("nominal_spring_data.csv",spring_data)
+# spring_data = DataFrame(data,columns)
+# CSV.write("nominal_spring_data.csv",spring_data)
 
 
-data = hcat(s1_r, s2_r, l1, l2)
-columns = ["s1 r", "s2 r", "l1", "l2"]
-geometry_data = DataFrame(data,columns)
-CSV.write("geometry_data.csv",geometry_data)
+# data = hcat(s1_r, s2_r, l1, l2)
+# columns = ["s1 r", "s2 r", "l1", "l2"]
+# geometry_data = DataFrame(data,columns)
+# CSV.write("geometry_data.csv",geometry_data)
