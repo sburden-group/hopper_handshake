@@ -46,29 +46,7 @@ end
 # potential energy
 function potential_energy(q::Vector{T},p::Designs.Params) where T
     g = 9.81
-    l = leg_length(q,p)
-    θ1 = q[θ1_idx]
-    θ2 = q[θ2_idx]
-
-    s1_fl = Designs.ExtensionSprings.free_length(p.s1)
-    joint_location = Array{T}([p.l1*sin(θ1),-p.l1*cos(θ1)])
-    r = (p.l1+s1_fl+.015)
-    fixed_end = Array{T}([r*sin(p.s1_r),-r*cos(p.s1_r)]) 
-    free_end = joint_location + .015*(fixed_end-joint_location)/norm(fixed_end-joint_location)
-    δx = fixed_end-free_end
-    s1_energy = Designs.ExtensionSprings.spring_energy(p.s1,norm(δx)-s1_fl)
-
-    s2_fl = Designs.ExtensionSprings.free_length(p.s2)
-    joint_location = Array{T}([p.l1*sin(θ2),-p.l1*cos(θ2)])
-    r = (p.l1+s2_fl+.015)
-    fixed_end = Array{T}([r*sin(p.s2_r),-r*cos(p.s2_r)]) 
-    free_end = joint_location + .015*(fixed_end-joint_location)/norm(fixed_end-joint_location)
-    δx = fixed_end-free_end
-    s2_energy = Designs.ExtensionSprings.spring_energy(p.s2,norm(δx)-s2_fl)
-
-    s3_energy = Designs.CompressionSprings.spring_energy(p.s3,p.l1+p.l2-l)
-
-    return T(m*g*q[xf_idx]+s1_energy+s2_energy+s3_energy)
+    return T(m*g*q[xf_idx])
 end
 
 # kinetic energy
@@ -269,7 +247,7 @@ function cost(x::Vector{T}) where {T <: Real}
 end
 
 function cost_grad(x::Vector{T}) where {T<:Real}
-    cfg = GradientConfig(cost,x,Chunk{14}())
+    cfg = GradientConfig(cost,x,Chunk{2}())
     return gradient(cost,x,cfg)
 end
 
