@@ -89,15 +89,15 @@ How do I want to organize this code??
 function bounds()
     lower_bound = [
         0.04        # lower bound on extension spring active coils, likely won't activate
-        0.5         # lower bound on extension spring wire diameter, likely won't activate
+        0.05         # lower bound on extension spring wire diameter, likely won't activate
         0.5         # lower bound on extension spring index, likely won't activate
         pi/2        # lower bound on right side extension spring rest angle
         0.04
-        0.5
+        0.05
         0.5
         -3pi/4
         0.04        # lower bound on compression spring active coils
-        0.5         # lower bound on compression spring wire diameter     
+        0.05         # lower bound on compression spring wire diameter     
         0.5         # lower bound on compression spring index
         1.0         # lower bound on compression spring rest length, I hope this won't activate
         0.5         # lower bound on proximal link length

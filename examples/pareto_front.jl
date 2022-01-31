@@ -8,19 +8,21 @@ x0 = Designs.random_sample(1)
 cost = Optimization.lsp_optimize(x0[:,1],.1)
 
 ## generate an initial guess for the linear scalarization problem corresponding to λ = .1
+N = 10
+random_samples = Designs.random_sample(N^2)
+random_hopper = map(i->Hopper.cost(random_samples[:,i]),1:N^2)
+random_handshake = map(i->Handshake.cost(random_samples[:,i]),1:N^2)
 λ = .9
-N = 20
-x0 = Designs.random_sample(N^2)
-cost = map(i->Optimization.cost(x0[:,i],λ),1:N^2)
+cost = map(i->λ*random_hopper[i]+(1-λ)*random_handshake[i],1:N^2)
 
 # sort by cost
 p = sortperm(cost)
 
 # optimize a subset
-cost = map(i->Optimization.lsp_optimize(x0[:,p[i]],λ;maxtime=10.)[1],1:N)
+# cost = map(i->Optimization.lsp_optimize(x0[:,p[i]],λ;maxtime=2.)[1],1:N)
 
 # select the best
-x0 = x0[:,p[argmin(cost)]]
+x0 = random_samples[:,p[argmin(cost)]]
 
 ## next we attempt to solve the scalarization problem
 minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=30.,ftol_rel = 1e-16)
@@ -33,7 +35,7 @@ df1(x) = Hopper.cost_grad(x)
 f2(x) = Handshake.cost(x)               # the value of f2(x) will be constrained
 df2(x) = Handshake.cost_grad(x)
 
-N = 35                                  # number of iterations we will attempt
+N = 40                                  # number of iterations we will attempt
 Δ = 0.1                                 # step change in f2 value
 x = zeros((length(minx),N))             
 x[:,1] = xstar                          
@@ -74,7 +76,9 @@ error = map(i->stationarity[i][1],1:length(stationarity))
 weight = map(i->stationarity[i][2],1:length(stationarity))
 
 using Plots
-cost_plot = scatter(hopper,handshake)
+cost_plot = scatter(hopper,handshake;label="pareto points")
+idx = filter(i->random_hopper[i]<4 && random_handshake[i]<4, 1:length(random_hopper))
+scatter!(cost_plot,random_hopper[idx],random_handshake[idx];label="random samples",markershape=:cross)
 
 ## select 3 different solutions to build
 p = [Designs.unpack(x[:,i]) for i=1:size(x,2)]
