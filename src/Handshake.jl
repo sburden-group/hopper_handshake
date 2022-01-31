@@ -35,16 +35,18 @@ const Ke = 1/Kv           # Volt / (rad/s)
 function hip_foot_angle(q::Vector{T}) where {T <: Real}
     (q[θ1_idx]+q[θ2_idx])/2.0
 end
+
 function interior_leg_angle(q::Vector{T}) where {T <: Real}
     (q[θ1_idx]-q[θ2_idx])/2.0
 end
+
 function leg_length(q::Vector{T}, p::Designs.Params) where {T <: Real}
     ϕ = interior_leg_angle(q)
     p.l1*cos(ϕ)+sqrt(p.l2^2-(p.l1*sin(ϕ))^2)
 end
 
 # potential energy
-function potential_energy(q::Vector{T},p::Designs.Params) where T
+function potential_energy(q::Vector{T},p::Designs.Params) where T <: Real
     g = 9.81
     return T(m*g*q[xf_idx])
 end
@@ -58,76 +60,31 @@ end
 const M = diagm([Jm,Jm,m,m])
 const Minv = inv(M)
 
-# mass matrix ( can actually simplify since it should be a constant diagonal matrix )
-function mass_matrix(q::Vector,p::Designs.Params)
-    cfg = HessianConfig(nothing, q, Chunk{n}())
-    hessian(qdot->kinetic_energy(q,qdot,p),zeros(n))
-end
-
-# coriolis matrix ( can actually neglect for now since it should be zero)
-function coriolis_matrix(q::Vector,qdot::Vector,p::Designs.Params)
-    x = vcat(q,qdot)
-    f(x)=kinetic_energy(x[1:n],x[n+1:2n],p)
-    Df(x)=gradient(f,x)
-    cfg2=JacobianConfig(Df,x,Chunk{2n}())
-    Y=jacobian(Df,x,cfg2)
-    return Y[1:n,n+1:2n]+Y[n+1:2n,1:n]
-end
-
 # ∇V for the model ( can simplify greatly since it should be representable as -Kx-F for fixed K,F in this model )
-function potential_gradient(q::Vector{T},p::Designs.Params) where T
+function potential_gradient(q::Vector{T},p::Designs.Params) where T<:Real
     f(x) = potential_energy(x,p)
     cfg = GradientConfig(f, q, Chunk{n}())
     return gradient(f,q,cfg)
 end
 
 # kinematic constraint on configuration due to foot contact at (0,0)
-function constraints(q::Vector{T},p::Designs.Params) where T
+function constraints(q::Vector{T},p::Designs.Params) where T<:Real
     θ = hip_foot_angle(q)
     l = leg_length(q,p)
-    return [q[xf_idx]-l*sin(θ),q[yf_idx]+l*cos(θ)]
+    return [q[xf_idx]-l*cos(θ),q[yf_idx]-l*sin(θ)]
 end
 
 # Constraint forces
-function A_jacobian(q::Vector,p::Designs.Params)
+function A_jacobian(q::Vector{T},p::Designs.Params) where T<:Real
     f = q->constraints(q,p)
     cfg = JacobianConfig(f, q, Chunk{n}())
     jacobian(f,q,cfg)
 end
 
 """
-Generates a random state from a random effector coordinates.
-"""
-function random_state(p::Designs.Params)
-    q = zeros(n)
-    qdot = zeros(n)
-    q[xf_idx] = 0.25+0.2*(rand()-.5)
-    q[yf_idx] = 0.2*(rand()-.5)
-    qdot[xf_idx] = 2*(rand()-.5)
-    qdot[yf_idx] = 2*(rand()-.5)
-    q_j, qdot_j = joint_coords(q[[xf_idx,yf_idx]],qdot[[xf_idx,yf_idx]],p)
-    q[θ1_idx] = q_j[1]
-    q[θ2_idx] = q_j[2]
-    qdot[θ1_idx] = qdot_j[1]
-    qdot[θ2_idx] = qdot_j[2]
-    return (q,qdot)
-end
-
-"""
-Solves inverse kinematics problem given (pos,vel) of effector
-"""
-function inverse_kin(qe::Vector{T}, x0::Vector, p::Designs.Params) where {T<:Real}
-    f(x)=constraints(vcat(x,qe),p)
-    Df(x)=A_jacobian(vcat(x,qe),p)[:,[θ1_idx,θ2_idx]]
-    x = Array{T}(nlsolve(f,Df,Array{T}(x0);ftol=1e-6).zero)
-    return x
-end
-
-"""
 Calculates the derivative of DA(q)
 """
 function A_jacobian_prime(q::Vector{T},qdot::Vector{T},p::Designs.Params) where {T<:Real}
-    # MAGIC NUMBERS  
     rows = 2 # number of constraint equations
     f(x) = A_jacobian(x,p)
     cfg = JacobianConfig(f, q, Chunk{n}())
@@ -148,11 +105,6 @@ const G = [
 # of the corresponding motor.
 _F = (q,qdot)->[-qdot[θ1_idx]*Ke^2/R,-qdot[θ2_idx]*Ke^2/R,0,0]
 
-
-# state projection map for the handshake behavior
-const P = [ 0.0 0.0 1.0 0.0
-            0.0 0.0 0.0 1.0]
-
 """
 Computes the anchor dynamics as qddot = f(q,qdot,u), returns qddot
 """
@@ -163,15 +115,19 @@ function dynamics(q::Vector{T},qdot::Vector{T},u::Vector{T},p::Designs.Params) w
     F = _F(q,qdot)
     λ = (DA*Minv*DA')\(DA*Minv*(∇V-G*u-F)-DAp*qdot)
     qddot = Minv*(-∇V+G*u+F+DA'*λ)
-    return qddot
+    return qddot,λ
 end
+
+# state projection map for the handshake behavior
+const P = [ 0.0 0.0 1.0 0.0
+            0.0 0.0 0.0 1.0]
 
 """
 Computes the template dynamics at the projection of (q,qdot)
 """
 function template_dynamics(q::Vector{T},qdot::Vector{T}) where T<:Real
     lt = [0.0,0.2] # location of minimum spring potential in template projection
-    ω = 2.0*pi
+    ω = 2pi
     ζ = 0.5
     kt = ω^2
     bt = 2ζ*ω
@@ -180,64 +136,65 @@ function template_dynamics(q::Vector{T},qdot::Vector{T}) where T<:Real
     return (-bt*qtdot-kt*(qt-lt))
 end
 
-"""
-Computes the anchoring controller u which satisfies P*f(q,qdot,u) = g(P*q,P*qdot)
-"""
 function minimum_norm_control(q::Vector{T},qdot::Vector{T},p::Designs.Params) where T<:Real
     target = template_dynamics(q,qdot)
     ∇V = potential_gradient(q,p)
     DA = A_jacobian(q,p)
     DAp = A_jacobian_prime(q,qdot,p)
     F = _F(q,qdot)
-    MinvDAT = Minv*DA'
-    MinvG = Minv*G
-    qddot = Minv*(∇V-F)
     A = vcat(
-        hcat(DA*Minv*DA', DA*Minv*G),
-        hcat(P*MinvDAT, P*MinvG)
+        hcat(DA, zeros(size(DA,1),size(DA,1)), zeros(size(DA,1),size(G,2))),
+        hcat(M,-DA',-G),
+        hcat(zeros(size(P)), P*Minv*DA', P*Minv*G)
     )
     b = vcat(
-        DA*qddot-DAp*qdot,
-        P*qddot+target
+        -DAp*qdot,
+        -∇V+F,
+        P*Minv*(∇V-F)+target
     )
-    return (A\b)[3:4]
+    return (A\b)[n+size(DA,1)+1:end]
+end
+
+function integration_mesh()
+    nrows = 10
+    ncols = 10
+    # This integration net is in polar coordinates
+    (amin, amax) = (.16, .24)              # bounds on leg length
+    (bmin, bmax) = (-pi/4.0, pi/4.0)       # bounds on leg angle
+    mesh1 = range(amin,amax,length=nrows+1) # net over leg length
+    mesh2 = range(bmin,bmax,length=ncols+1) # net over leg angle
+    return mesh1, mesh2
+end
+
+
+function coord_transform(r::T,θmean::T, p::Designs.Params) where T<:Real
+    xf = r*cos(θmean)
+    yf = r*sin(θmean)
+    f(θ)=constraints(vcat(θ,xf,yf),p)
+    θ = Array{T}(nlsolve(f,Array{T}([θmean+pi/4,θmean-pi/4]);ftol=1e-6).zero)
+    return vcat(θ,xf,yf)
 end
 
 function control_cost(p::Designs.Params)
     T = eltype(p.l1)
-    # Net for integration
-    nrows = 10
-    ncols = 10
-    # This integration net is in polar coordinates
-    (a1, b1) = (.16, .24)              # bounds on leg length
-    (a2, b2) = (-pi/4.0, pi/4.0)       # bounds on leg angle
-    net1 = range(a1,b1,length=nrows+1) # net over leg length
-    net2 = range(a2,b2,length=ncols+1) # net over leg angle
-
-    # helper functions for calculating sampling points and interval volume
-    midpoint = i->i[1]+(i[2]-i[1])/2
-    volume = I->(I[1][2]-I[1][1])*(I[2][2]-I[2][1]) # signed or not signed?
-
-    # Calculations are done in this loop
+    mesh1, mesh2 = integration_mesh()
     cost = 0.0
     q = zeros(T,n)
     qdot = zeros(T,n)
-    qj = Array{T}([pi/4,-pi/4]) # initial guesses for inverse kinematics
-    for i = 1:nrows
-        for j = 1:ncols
-            # calculate volume interval, integration point, and state
-            I = ((net1[i],net1[i+1]),(net2[j],net2[j+1]))
-            x = Array{T}([midpoint(I[1]),midpoint(I[2])])
-            q[xf_idx] = x[1]*sin(x[2])
-            q[yf_idx] = -x[1]*cos(x[2])
-            q[[θ1_idx,θ2_idx]] = inverse_kin(q[[xf_idx,yf_idx]],qj,p)
+    for i = 1:length(mesh1)-1
+        for j = 1:length(mesh2)-1
+            a = [mesh1[i],mesh2[j]]
+            b = [mesh1[i+1],mesh2[j+1]]
+            midpoint = Array{T}((a+b)/2)
+            q = coord_transform(midpoint..., p) 
             u = minimum_norm_control(q,qdot,p)
-            cost += norm(u)*abs(volume(I))
+            cell_volume = abs(prod(b-a))
+            cost += norm(u)*cell_volume
         end
     end
-    # return cost
-    # normalize by workspace volume
-    return cost /(abs(b1-a1)*abs(b2-a2))
+    a = [mesh1[1],mesh2[1]]; b = [mesh1[end],mesh2[end]];
+    jointspace_volume = abs(prod(b-a))
+    return cost / jointspace_volume
 end
 
 """ BEGIN OPTIMIZATION CODE """ 
@@ -298,55 +255,6 @@ function sim_euler(f, q0, qdot0, dt, N, p)
         qdot[:,i+1] = qdot[:,i]+dt*qddot+λ
     end
     return (q=q,qdot=qdot)
-end
-
-using Plots
-using NLsolve
-
-function demo_plot(p::Designs.Params)
-    N = 4000
-    dt = .001
-    t = Array(range(0,N*dt,length=N+1))
-
-    # solve for initial conditions
-    q0 = zeros(n); qdot0=zeros(n)
-    r = 0.2; θ = 3pi/4;
-    q0[[xf_idx,yf_idx]] = [r*sin(θ),-r*cos(θ)]
-    (qj,qjdot) = inverse_kin(q0[[xf_idx,yf_idx]],qdot0[[xf_idx,yf_idx]],[pi/4,-pi/4],p)
-    q0[[θ1_idx,θ2_idx]] = qj
-    qdot0[[θ1_idx,θ2_idx]] = qjdot
-
-    f1(q,qdot,p) = passive_dynamics(q,qdot,p)
-    sim1 = sim_euler(f1, q0, qdot0, dt, N, p)
-    f2(q,qdot,p) = active_dynamics(q,qdot,p)
-    sim2 = sim_euler(f2, q0, qdot0, dt, N, p)
-
-    # inverse kinematics to solve for equivalent initial conditions
-    # (in effector coordinates) for the unoptimized leg
-    (qj,qjdot) = inverse_kin(q0[[xf_idx,yf_idx]],qdot0[[xf_idx,yf_idx]],[pi/4,-pi/4], default_params)
-    q0[[θ1_idx,θ2_idx]] = qj
-    qdot0[[θ1_idx,θ2_idx]] = qjdot
-    sim3 = sim_euler(f2, q0, qdot0, dt, N, default_params)
-
-    # compute controls for sim2 and sim3
-    sim1_u_norm = zeros(N+1)
-    sim2_u_norm = [
-        norm(minimum_norm_control(sim2.q[:,i],sim2.qdot[:,i],p)) for i=1:N+1
-    ]
-    sim3_u_norm = [
-        norm(minimum_norm_control(sim3.q[:,i],sim3.qdot[:,i],default_params)) for i=1:N+1
-    ]
-
-    # make plots
-    trj_plot = plot(t, sim1.q[yf_idx,:],title="Position vs time.",label="passive optimized")
-    plot!(trj_plot, t, sim2.q[yf_idx,:],label="active optimized")
-    plot!(trj_plot, t, sim3.q[yf_idx,:],label="active unoptimized",linestyle=:dash)
-
-    ctrl_plot = plot(t,sim1_u_norm,title="Control norm vs time.",label="")
-    plot!(ctrl_plot,t,sim2_u_norm,label="")
-    plot!(ctrl_plot,t,sim3_u_norm,label="",linestyle=:dash)
-    plt=plot(trj_plot, ctrl_plot, layout=(2,1))
-    return (plt, sim1, sim2, sim3)
 end
 
 end
