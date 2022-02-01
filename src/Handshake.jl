@@ -48,7 +48,7 @@ end
 # potential energy
 function potential_energy(q::Vector{T},p::Designs.Params) where T <: Real
     g = 9.81
-    return T(m*g*q[xf_idx])
+    return T(m*g*q[yf_idx])
 end
 
 # kinetic energy
