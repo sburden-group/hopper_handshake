@@ -250,7 +250,7 @@ function constraint_optimize(
             f2,             # function to constraint
             Df2,            # jacobian of function to constrain
             x0::Vector,     # initial guess
-            ϵ::Real;        # constraint bound
+            θ::Real;        # constraint bound
             ftol_rel=1e-16, 
             maxtime=3.)
     f(x, grad) = begin
@@ -267,9 +267,10 @@ function constraint_optimize(
     end
     g(result,x,grad) = begin
         try
-            result[:] = vcat(Designs.nlconstraints(x),f2(x)-ϵ)
+            result[:] = vcat(Designs.nlconstraints(x),f2(x)/f1(x)-tan(θ))
             if length(grad) > 0
-                grad[:,:] = vcat(Designs.nlconstraints_jacobian(x),Df2(x)')'[:,:]
+                cgrad = (f1(x)*Df2(x)-f2(x)*Df1(x))/f1(x)^2
+                grad[:,:] = vcat(Designs.nlconstraints_jacobian(x),cgrad')'[:,:]
             end
         catch e
             print(e)

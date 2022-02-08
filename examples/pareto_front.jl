@@ -7,14 +7,14 @@ using Random
 include("../HopperHandshake.jl") # reloading HopperHandshake.jl will trigger lots of recompilation
 
 ## generate random samples
-N = 200
+N = 500
 Random.seed!(42)
 random_samples = Designs.random_sample(N)
 random_hopper = map(i->Hopper.cost(random_samples[:,i]),1:N)
 random_handshake = map(i->Handshake.cost(random_samples[:,i]),1:N)
 
-## generate initial guess for optimization
-λ = 0.05
+## generate initial optimization solutions
+λ = 0.9
 cost = map(i->λ*random_hopper[i]+(1-λ)*random_handshake[i],1:length(random_hopper))
 
 # sort by cost
@@ -24,42 +24,55 @@ p = sortperm(cost)
 x0 = random_samples[:,p[argmin(cost)]]
 
 # dummy optimization to trigger compilation
-minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=2.,ftol_rel = 1e-16)
+minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=1.,ftol_rel = 1e-16)
 
-## next we attempt to solve the scalarization problem
+# next we attempt to solve the scalarization problem
 minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=30.,ftol_rel = 1e-16)
-xstar = minx
+xstar1 = minx
+θ1 = atan(Handshake.cost(xstar1)/Hopper.cost(xstar1))
+error,weight = Optimization.stationarity_test(minx;tol=1e-12)
+
+λ = 0.1
+cost = map(i->λ*random_hopper[i]+(1-λ)*random_handshake[i],1:length(random_hopper))
+
+# sort by cost
+p = sortperm(cost)
+
+# select the best
+x0 = random_samples[:,p[argmin(cost)]]
+
+# next we attempt to solve the scalarization problem
+minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=30.,ftol_rel = 1e-16)
+xstar2 = minx
+θ2 = atan(Handshake.cost(xstar2)/Hopper.cost(xstar2))
 error,weight = Optimization.stationarity_test(minx;tol=1e-12)
 
 ## optimization code
-f2(x) = Hopper.cost(x)                  # the value of f1(x) will be the optimization objective
-df2(x) = Hopper.cost_grad(x)
-f1(x) = Handshake.cost(x)               # the value of f2(x) will be constrained
-df1(x) = Handshake.cost_grad(x)
+f1(x) = Hopper.cost(x)                  # the value of f1(x) will be the optimization objective
+df1(x) = Hopper.cost_grad(x)
+f2(x) = Handshake.cost(x)               # the value of f2(x) will be constrained
+df2(x) = Handshake.cost_grad(x)
 
-N = 27                                  # number of iterations we will attempt
-Δ = 0.05                                 # step change in f2 value
-x = zeros((length(minx),N))             
-x[:,1] = xstar                          
+N = 15                                  # number of iterations we will attempt
+sig = [1/(1+exp(-4x)) for x in range(-1,1,length=N)]
+θ = θ1 .+ (θ2-θ1)*sig
+x = zeros((length(minx),N+2))             
+x[:,1] = xstar1
 
-for i=2:N
-    ϵ = f2(x[:,i-1])-Δ
+for i=1:N
     minf,minx,ret = Optimization.constraint_optimize(
                         f1,
                         df1,
                         f2,
                         df2,
-                        x[:,i-1],
-                        ϵ;
+                        x[:,i],
+                        θ[i];
                         ftol_rel=1e-16,
                         maxtime=60.
                     )
-    if norm(minx-x[:,i-1]) < 1e-3
-        x = x[:,1:i-1]
-        break
-    end
-    x[:,i] = minx
+    x[:,i+1] = minx
 end
+x[:,end] = xstar2
 
 ##
 
