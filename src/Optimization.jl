@@ -146,6 +146,40 @@ function pareto_tangent(x::Vector{T}; tol=0.) where {T<:Real}
     return value(h), δx
 end
 
+function optimize_control(x0;ftol_rel=1e-12,maxtime=10.,tol=0.)
+    mechanical_params = x0[1:14]
+    control_params = x0[15:end]
+    f(x,grad) = begin
+        try
+            if length(grad) > 0
+                grad[:] = cost_grad([mechanical_params...,x...],.5)[15:end]
+            end
+            return cost([mechanical_params...,x...],.5)
+        catch
+        end
+    end
+    g(result,x,grad) = begin
+        try
+            result[:] = Designs.nlconstraints([mechanical_params...,x...])[:]
+            if length(grad) > 0
+                grad[:,:] = Designs.nlconstraints_jacobian([mechanical_params...,x...])'[15:end,:]
+            end
+        catch e
+            print(e)
+            throw(e)
+        end
+    end
+    opt = NLopt.Opt(:LD_SLSQP,length(control_params))
+    opt.ftol_rel = ftol_rel
+    lb,ub = Designs.bounds()
+    opt.lower_bounds = lb[15:end]
+    opt.upper_bounds = ub[15:end]
+    opt.maxtime=maxtime
+    opt.min_objective = f
+    inequality_constraint!(opt, g, tol*ones(length(Designs.nlconstraints(x0))))
+    (minf, minx, ret) = optimize(opt, control_params)
+end
+
 function lsp_optimize(x0,λ;ftol_rel=1e-12,maxtime=10.,tol=0.)
     f(x, grad) = begin
         try
@@ -178,70 +212,6 @@ function lsp_optimize(x0,λ;ftol_rel=1e-12,maxtime=10.,tol=0.)
     opt.min_objective = f
     inequality_constraint!(opt, g, tol*ones(length(Designs.nlconstraints(x0))))
     (minf, minx, ret) = optimize(opt, x0)
-end
-
-function lsp_optimize_global(x0,λ;ftol_rel=1e-12,maxtime=10.)
-    f(x,grad) = begin
-        try
-            return cost(x,λ)
-        catch e
-            print(e)
-            throw(e)
-        end
-    end
-    g(result,x,grad) = begin
-        try
-            result[:] = Designs.nlconstraints(x)[:]
-            if length(grad) > 0
-                grad[:,:] = Designs.nlconstraints_jacobian(x)'[:,:]
-            end
-        catch e
-            print(e)
-            throw(e)
-        end
-    end
-    opt = NLopt.Opt(:GN_ISRES,length(x0))
-    opt.maxtime=maxtime
-    opt.min_objective = f
-    opt.ftol_rel = ftol_rel
-    opt.xtol_rel = sqrt(ftol_rel)
-    # local_opt = NLopt.Opt(:GN_DIRECT,length(x0))
-    # local_opt.ftol_rel = ftol_rel
-    # local_opt.xtol_rel = sqrt(ftol_rel)
-    # local_opt.maxtime = maxtime/10.
-    lb,ub = Designs.bounds()
-    opt.lower_bounds = lb
-    opt.upper_bounds = ub
-    # NLopt.local_optimizer!(opt,local_opt)
-    NLopt.inequality_constraint!(opt, g, zeros(length(Designs.nlconstraints(x0))))
-    (minf, minx, ret) = optimize(opt, x0)
-end
-
-""" Generates a guesses for optimal x by randomly sampling n values,
-    optimizing each for a short time (< seconds), and then returns
-    the m<n best values."""
-function initial_guess(λ::Float64,n::Int,m::Int)
-    @assert m<n
-    Random.seed!(42)
-    x0 = Designs.random_sample(n^2)
-    f0 = map(i->cost(x0[:,i],λ), 1:n^2)
-    idx = sortperm(f0)
-    x0 = x0[:,idx[1:n]]
-    x = zeros((size(x0,1),n))
-    f = zeros(n)
-    for i=1:n
-        try
-            minf, minx, ret = lsp_optimize(x0[:,i],λ;ftol_rel=1e-12,maxtime=10.)
-            x[:,i] = minx
-            f[i] = minf
-        catch e
-            print(e)
-            x[:,i] = x0[:,i]
-            f[i] = cost(x[:,i],λ)
-        end
-    end
-    idx = sortperm(f)
-    return (x[:,idx[1:m]],f[idx[1:m]])
 end
 
 function constraint_optimize(
