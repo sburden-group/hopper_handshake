@@ -14,11 +14,14 @@ struct Params{T<:Real}
     s3::CompressionSprings.Spring{T}
     l1::T
     l2::T
+    y_hop::T
+    x_shake::T
+    y_shake::T
 end
 
-const default_espring = ExtensionSprings.Spring(125.,1e-3,17.)
-const default_cspring = CompressionSprings.Spring(80.,1e-3,20.,.4)
-const default_params = Params(default_espring,pi/2,default_espring,-pi/2,default_cspring,0.12,0.17)
+const default_espring = ExtensionSprings.Spring(1e3,1e-6,10.)
+const default_cspring = CompressionSprings.Spring(1e3,1e-6,10.,.3)
+const default_params = Params(default_espring,pi/2,default_espring,-pi/2,default_cspring,0.1,0.2,0.2,0.2,0.)
 
 
 """
@@ -40,6 +43,9 @@ const scale_matrix = diagm([
         1e-1            # rest length of compression spring = .1x (convert decimeter to meter)
         1e-1            # proximal link length = .1x (convert decimeter to meter)
         1e-1            # distal link length = .1x
+        1e-1
+        1e-1
+        1e-1
 ])
 
 """
@@ -61,6 +67,9 @@ function pack(p::Params)
         p.s3.L0         # spring 3 rest length
         p.l1            # proximal link length
         p.l2            # distal link length
+        p.y_hop
+        p.x_shake
+        p.y_shake
     ]
     scale_matrix\x
 end
@@ -73,7 +82,7 @@ function unpack(x::Vector{T}) where T<:Real
     s1 = ExtensionSprings.Spring(y[1:3]...)
     s2 = ExtensionSprings.Spring(y[5:7]...)
     s3 = CompressionSprings.Spring(y[9:12]...)
-    Params(s1,y[4],s2,y[8],s3,y[13:14]...)
+    Params(s1,y[4],s2,y[8],s3,y[13:17]...)
 end
 
 """
@@ -101,7 +110,10 @@ function bounds()
         0.5         # lower bound on compression spring index
         1.0         # lower bound on compression spring rest length, I hope this won't activate
         0.5         # lower bound on proximal link length
-        1.0         # lower bound on distal link length         
+        1.0         # lower bound on distal link length
+        1.0
+        1.0
+        -0.5         
     ];
     upper_bound = [
         1.5         # upper bound on extension spring active coils
@@ -117,7 +129,10 @@ function bounds()
         1.5         # upper bound on compression spring index, likely won't activate
         4.0         # upper bound on compression spring rest length, I hope this won't activate
         1.0         # upper bound on proximal link length
-        3.0         # upper bound on distal link length         
+        3.0         # upper bound on distal link length
+        2.5
+        2.5
+        0.5   
     ];
     
     return lower_bound, upper_bound
@@ -145,8 +160,13 @@ end
 
 function kinematic_constraints(p::Params{T}) where T<:Real
     Array{T}([
-        -p.l1-p.l2+.27   # total link length lower bound
-        p.l2-p.l1-.13    # minimum leg length upper bound
+        -p.l1-p.l2+.25   # total link length lower bound
+        -p.l2+p.l1+.1    # minimum leg length upper bound
+        p.y_hop + .08 - p.l1 - p.l2
+        -p.y_hop + .08 - p.l1 + p.l2
+        p.x_shake^2+p.y_shake^2 - p.l1^2-p.l2^2
+        p.y_shake/p.x_shake - tan(pi/4)
+        -p.y_shake/p.x_shake - tan(pi/4)
     ])
 end
 
