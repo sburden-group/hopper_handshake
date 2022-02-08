@@ -14,63 +14,41 @@ random_hopper = map(i->Hopper.cost(random_samples[:,i]),1:N)
 random_handshake = map(i->Handshake.cost(random_samples[:,i]),1:N)
 
 ## generate initial guess for optimization
-λ = 0.05
-cost = map(i->λ*random_hopper[i]+(1-λ)*random_handshake[i],1:length(random_hopper))
-
+λ1 = 0.95
+cost = map(i->λ1*random_hopper[i]+(1-λ1)*random_handshake[i],1:length(random_hopper))
 # sort by cost
 p = sortperm(cost)
-
 # select the best
 x0 = random_samples[:,p[argmin(cost)]]
-
-# dummy optimization to trigger compilation
-minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=2.,ftol_rel = 1e-16)
-
-## next we attempt to solve the scalarization problem
-minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=30.,ftol_rel = 1e-16)
-xstar = minx
+minf, minx, ret = Optimization.lsp_optimize(x0,λ1;maxtime=30.,ftol_rel = 1e-16)
+xstar1 = minx
 error,weight = Optimization.stationarity_test(minx;tol=1e-12)
+θ1 = atan(Handshake.cost(xstar1)/Hopper.cost(xstar1))
+
+λ2 = 0.05
+cost = map(i->λ2*random_hopper[i]+(1-λ2)*random_handshake[i],1:length(random_hopper))
+# sort by cost
+p = sortperm(cost)
+# select the best
+x0 = random_samples[:,p[argmin(cost)]]
+minf, minx, ret = Optimization.lsp_optimize(x0,λ2;maxtime=30.,ftol_rel = 1e-16)
+xstar2 = minx
+error,weight = Optimization.stationarity_test(minx;tol=1e-12)
+θ2 = atan(Handshake.cost(xstar2)/Hopper.cost(xstar2))
 
 ## optimization code
-f2(x) = Hopper.cost(x)                  # the value of f1(x) will be the optimization objective
-df2(x) = Hopper.cost_grad(x)
-f1(x) = Handshake.cost(x)               # the value of f2(x) will be constrained
-df1(x) = Handshake.cost_grad(x)
-
-N = 60                                  # number of iterations we will attempt
-Δ = 0.025                                 # step change in f2 value
-x = zeros((length(minx),N))             
-x[:,1] = xstar                          
-
+f1(x) = Hopper.cost(x)
+df1(x) = Hopper.cost_grad(x)
+f2(x) = Handshake.cost(x)
+df2(x) = Handshake.cost_grad(x)
+N = 20
+θ = range(θ1,θ2,N)
+x = zeros((length(minx),N))
+x[:,1] = xstar1
 for i=2:N
-    ϵ = f2(x[:,i-1])-Δ
     minf,minx,ret = Optimization.constraint_optimize(
-                        f1,
-                        df1,
-                        f2,
-                        df2,
-                        x[:,i-1],
-                        ϵ;
-                        ftol_rel=1e-16,
-                        maxtime=60.
-                    )
-    if f1(minx)-f1(x[:,i-1]) > 2Δ
-        Δ = Δ/2
-        minf,minx,ret = Optimization.constraint_optimize(
-                            f1,
-                            df1,
-                            f2,
-                            df2,
-                            x[:,i-1],
-                            ϵ;
-                            ftol_rel=1e-16,
-                            maxtime=60.
-                        )
-    end
-    if norm(minx-x[:,i-1]) < 1e-2
-        x = x[:,1:i-1]
-        break
-    end
+        f1,df1,f2,df2,x[:,i-1],θ[i];ftol_rel=1e-16,maxtime=30.
+    )
     x[:,i] = minx
 end
 
@@ -80,21 +58,19 @@ end
 hopper = map(i->Hopper.cost(x[:,i]),1:size(x,2))
 handshake = map(i->Handshake.cost(x[:,i]),1:size(x,2))
 
-# sort by hopper
-p = sortperm(hopper)
-hopper[:] = hopper[p]
-handshake[:] = handshake[p]
-x[:,:] = x[:,p]
-
-stationarity = map(i->Optimization.stationarity_test(x[:,i];tol=1e-9),1:size(x,2))
+# filter data by error and sort by hopper
+stationarity = map(i->Optimization.stationarity_test(x[:,i];tol=1e-12),1:size(x,2))
 error = map(i->stationarity[i][1],1:length(stationarity))
 weight = map(i->stationarity[i][2],1:length(stationarity))
+
+idx = filter(i->abs(error[i])<1e-3,1:N)
+p = sortperm(hopper[idx])
 
 # create a figure of the objective space
 using Plots
 
 # plot the pareto front
-cost_plot = scatter(hopper,handshake;label="pareto points")
+cost_plot = scatter(hopper[idx[p]],handshake[idx[p]];label="pareto points")
 
 # save the data
 columns = vcat("hopper","shaker",["x$(i)" for i=1:5]...)
