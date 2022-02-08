@@ -37,7 +37,7 @@ df2(x) = Hopper.cost_grad(x)
 f1(x) = Handshake.cost(x)               # the value of f2(x) will be constrained
 df1(x) = Handshake.cost_grad(x)
 
-N = 60                                  # number of iterations we will attempt
+N = 27                                  # number of iterations we will attempt
 Δ = 0.05                                 # step change in f2 value
 x = zeros((length(minx),N))             
 x[:,1] = xstar                          
@@ -87,24 +87,11 @@ cost_plot = scatter(hopper,handshake;label="pareto points")
 idx = filter(i->random_hopper[i]<4 && random_handshake[i]<4, 1:length(random_hopper))
 scatter!(cost_plot,random_hopper[idx],random_handshake[idx];label="random samples",markershape=:cross)
 
-# plot the minitaur
-minitaur = Designs.pack(Designs.default_params)
-minitaur_cost = [Hopper.cost(minitaur), Handshake.cost(minitaur)]
-scatter!(cost_plot, minitaur_cost[[1]], minitaur_cost[[2]];label="minitaur leg (no springs)",markershape=:diamond,markersize=7)
-
-# plot no-spring optimized design
-nospring_optimized = Designs.pack(Designs.default_params)
-nospring_optimized[end-1] = 0.7
-scatter!(cost_plot, [Hopper.cost(nospring_optimized)], [Handshake.cost(nospring_optimized)];label="no spring, optimized",markershape=:diamond,markersize=7)
-
-# highlight points which dominate minitaur
-minitaur_dominators = [i for i=1:length(hopper) if hopper[i] <= minitaur_cost[1] && handshake[i] <= minitaur_cost[2]]
-# scatter!(cost_plot, hopper[minitaur_dominators], handshake[minitaur_dominators];label="minitaur dominators",markershape=:star,markersize=7)
 xlabel!(cost_plot,"Hopper cost")
 ylabel!(cost_plot,"Handshake cost")
 
 ## Save all the data from this figure!
-columns = vcat("hopper","shaker",["x$(i)" for i=1:14]...)
+columns = vcat("hopper","shaker",["x$(i)" for i=1:17]...)
 df = DataFrame(hcat(hopper,handshake,x'),columns)
 CSV.write("pareto_front.csv", df)
 
