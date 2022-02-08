@@ -7,7 +7,7 @@ using Random
 include("../HopperHandshake.jl") # reloading HopperHandshake.jl will trigger lots of recompilation
 
 ## generate random samples
-N = 200
+N = 100
 Random.seed!(42)
 random_samples = Designs.random_sample(N)
 for i=1:N
@@ -116,12 +116,8 @@ CSV.write("pareto_front.csv", df)
 df = DataFrame(hcat(random_hopper,random_handshake,random_samples'),columns)
 CSV.write("random_samples.csv", df)
 
-# # no spring designs
-# costs = vcat(minitaur_cost', [Hopper.cost(nospring_optimized), Handshake.cost(nospring_optimized)]')
+# no spring designs
 nosprings = CSV.read("nospring_front.csv",DataFrame)
-
-# df = DataFrame(hcat(costs,vcat(minitaur',nospring_optimized')), columns)
-# CSV.write("nosprings.csv", df)
 
 ## select 3 different solutions to build
 p = [Designs.unpack(x[:,i]) for i=1:size(x,2)]
