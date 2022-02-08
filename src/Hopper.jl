@@ -15,7 +15,7 @@ using Random: rand
 """
 BEGIN MODEL DEFINITION, DYNAMICS, CONTROL
 """
-const m = 2.25
+const m = 2.0
 const Jm = .5/2*(.087^2+.08^2) # rough approximation motor inertia from thick-walled cylinder model.
 
 # constants related to (unconstrained) statespace
@@ -42,7 +42,7 @@ end
 
 function leg_length(q::Vector{T}, p::Designs.Params) where {T <: Real}
     ϕ = interior_leg_angle(q)
-    p.l1*cos(ϕ)+sqrt(p.l2^2-(p.l1*sin(ϕ))^2)
+    p.l1*cos(ϕ)+sqrt(p.l2^2-(p.l1*sin(ϕ))^2)+.03
 end
 
 function potential_energy(q::Vector{T},p::Designs.Params) where {T <: Real}
@@ -122,19 +122,19 @@ const P = [1.0 0.0 0.0]
 """
 Computes the template dynamics at the projection of (q,qdot)
 """
-function template_dynamics(q::Vector{T},qdot::Vector{T}) where T<:Real
-    lt = [0.2] # location of minimum spring potential in template projection
+function template_dynamics(q::Vector{T},qdot::Vector{T},p::Designs.Params) where T<:Real
+    lt = [0.23] # location of minimum spring potential in template projection
     ω = 4pi
-    ζ = 0.05
+    ζ = 0.01
     kt = ω^2
     bt = 2ζ*ω
     qt = (P*q)
     qtdot = (P*qdot)
-    return (-bt*qtdot-kt*(qt-lt))
+    return (-bt*qtdot-kt*(qt-[p.y_hop]))
 end
 
 function minimum_norm_control(q::Vector{T},qdot::Vector{T},p::Designs.Params) where T<:Real
-    target = template_dynamics(q,qdot)
+    target = template_dynamics(q,qdot,p)
     ∇V = potential_gradient(q,p)
     DA = A_jacobian(q,p)
     DAp = A_jacobian_prime(q,qdot,p)
@@ -152,15 +152,11 @@ function minimum_norm_control(q::Vector{T},qdot::Vector{T},p::Designs.Params) wh
     return (A\b)[n+size(DA,1)+1:end]
 end
 
-function integration_mesh()
-    nrows = 10
-    ncols = 3
+function integration_mesh(p::Designs.Params)
+    m=20
     # This integration net is in polar coordinates
-    (amin, amax) = (0.16, 0.24)            # bounds on leg length
-    (bmin, bmax) = (-pi/16 , pi/16)        # bounds on leg angle
-    mesh1 = range(amin,amax,length=nrows+1)# net over leg length
-    mesh2 = range(bmin,bmax,length=ncols+1)# net over leg angle
-    return mesh1, mesh2
+    (min, max) = (p.l2-p.l1+.03,p.l2+p.l1-.03)            # bounds on leg length
+    return range(min,max,length=m+1)
 end
 
 function interval_midpoint(a::Vector,b::Vector)
@@ -171,36 +167,27 @@ function cell_volume(a::Vector,b::Vector)
     prod(b-a)
 end
 
-function coord_transform(r::T,θmean::T,p::Designs.Params) where T<:Real
-    body_pos = r*cos(θmean)
-    f(θ) = constraints(vcat(body_pos,θ...),p) - [0., r*sin(θmean)]
-    θ = nlsolve(f,Array{T}([θmean+pi/4,θmean-pi/4]);ftol=1e-6).zero
-    return vcat(body_pos,θ...)
+function coord_transform(r::T,p::Designs.Params) where T<:Real
+    f(θ) = constraints(vcat(r,θ...),p)
+    θ = nlsolve(f,Array{T}([pi/4,-pi/4]);ftol=1e-6).zero
+    return vcat(r,θ...)
 end
 
 function control_cost(p::Designs.Params)
     T = eltype(p.l1)
-    mesh1, mesh2 = integration_mesh()
+    mesh = integration_mesh(p)
     cost = 0
     q = zeros(T,n)
     qdot = zeros(T,n)
-    for i = 1:length(mesh1)-1
-        for j = 1:length(mesh2)-1
-            a = [mesh1[i],mesh2[j]]
-            b = [mesh1[i+1],mesh2[j+1]]
-            midpoint = Array{T}((a+b)/2)
-            q = coord_transform(midpoint...,p)
+    for i = 1:length(mesh)-1
+            midpoint = T((mesh[i]+mesh[i+1])/2)
+            q = coord_transform(midpoint,p)
             u = minimum_norm_control(q,qdot,p)
-            cell_volume = abs(prod(b-a))
-            cost += norm(u)*cell_volume
-        end
+            cell_volume = mesh[i+1]-mesh[i]
+            cost += norm(u)^2*cell_volume
     end
-    a = [mesh1[1],mesh2[1]]; b = [mesh1[end],mesh2[end]];
-    jointspace_volume = abs(prod(b-a))
-    return cost / jointspace_volume
+    return cost / abs(mesh[end]-mesh[1])
 end
-
-""" BEGIN OPTIMIZATION CODE """
 
 function cost(x::Vector{T}) where T<:Real
     p = Designs.unpack(x)
@@ -208,7 +195,7 @@ function cost(x::Vector{T}) where T<:Real
 end
 
 function cost_grad(x::Vector{T}) where T<:Real
-    cfg = GradientConfig(cost,x,Chunk{2}())
+    cfg = GradientConfig(cost,x,Chunk{5}())
     return gradient(cost,x,cfg)
 end
 
@@ -240,18 +227,83 @@ end
 Simulates the dynamics qddot = f(q,qdot) with timestep dt for N steps.
 Incorporates constraint stabilization perturbations.
 """
-function sim_euler(f, q0, qdot0, dt, N, p)
+function sim_euler(q0, qdot0, dt, N, p)
     q = zeros(eltype(q0), (length(q0),N+1))
     q[:,1] = q0
     qdot = zeros(eltype(qdot0), (length(qdot0),N+1))
+    u = zeros(eltype(q0), (2,N+1))
+    λ = zeros(eltype(q0), (2,N+1))
     qdot[:,1] = qdot0
     for i=1:N
-        μ, λ = constraint_stabilization(q[:,i],qdot[:,i],p)
-        qddot = f(q[:,i],qdot[:,i],p)
+        u[:,i] = minimum_norm_control(q[:,i],qdot[:,i],p)
+        qddot,_λ = dynamics(q[:,i],qdot[:,i],u[:,i],p)
+        λ[:,i] = _λ
+
+        μ, ν = constraint_stabilization(q[:,i],qdot[:,i],p)
         q[:,i+1] = q[:,i]+dt*qdot[:,i]+μ
-        qdot[:,i+1] = qdot[:,i]+dt*qddot+λ
+        qdot[:,i+1] = qdot[:,i]+dt*qddot+ν
     end
-    return (q=q,qdot=qdot)
+    u[:,end] = minimum_norm_control(q[:,end],qdot[:,end],p)
+    return (q=q,qdot=qdot,u=u,λ=λ)
 end
+
+"""
+What I need to do: take a hopper, simulate a collection of trajectories, compute the average energy expended
+during those trajectories, and return the result.
+"""
+
+function sim_experiment(p)
+    y0 = integration_mesh(p)
+    cost = []
+    for y in y0
+        q0 = coord_transform(y,p)
+        qdot0 = zeros(3)
+        q,qdot,u,λ = sim_euler(q0,qdot0,1e-3,3000,p)
+        push!(cost, sum(u.*u)/size(u,2))
+    end
+    return cost
+end
+
+function alternate_control_cost(p::Designs.Params,tf)
+    T = eltype(p.l1)
+    mesh = integration_mesh(p)
+    cost = 0
+    q = zeros(T,n)
+    qdot = zeros(T,n)
+    τ = 1 / 4pi
+    Δt = min(τ/10,tf/10)
+    N = Int(floor(tf/Δt))
+    for i = 1:length(mesh)-1
+            cell_volume = mesh[i+1]-mesh[i]
+            midpoint = T((mesh[i]+mesh[i+1])/2)
+            q = coord_transform(midpoint,p)
+            qdot = zeros(T,size(q))
+            for j = 1:N
+                u = minimum_norm_control(q,qdot,p)
+                cost += norm(u)^2*cell_volume/N
+                qddot,_λ = dynamics(q,qdot,u,p)
+                μ,ν = constraint_stabilization(q,qdot,p)
+                q += Δt*qdot+μ
+                qdot += Δt*qddot+ν
+            end
+    end
+    return cost / abs(mesh[end]-mesh[1])
+end
+
+function alternate_cost(x::Vector{T},tf) where T<:Real
+    p = Designs.unpack(x)
+    return alternate_control_cost(p,tf)
+end
+
+function alternate_cost_grad(x::Vector{T},tf) where T<:Real
+    f = x->alternate_cost(x,tf)
+    cfg = GradientConfig(f,x,Chunk{16}())
+    return gradient(f,x,cfg)
+end
+
+function alternate_cost_hessian(x::Vector{T}, tf, h::T) where T<:Real
+    return FiniteDifferences.central_difference(x->alternate_cost_grad(x,tf),x,h)
+end
+
 
 end
