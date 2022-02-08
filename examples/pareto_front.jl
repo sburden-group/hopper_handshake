@@ -97,3 +97,6 @@ using Plots
 cost_plot = scatter(hopper,handshake;label="pareto points")
 
 # save the data
+columns = vcat("hopper","shaker",["x$(i)" for i=1:5]...)
+df = DataFrame(hcat(hopper,handshake,x'),columns)
+CSV.write("nospring_front.csv", df)
