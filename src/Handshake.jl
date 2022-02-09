@@ -181,7 +181,7 @@ function integration_mesh(p::Designs.Params)
     nrows = 10
     ncols = 10
     # This integration net is in polar coordinates
-    (amin, amax) = (p.l2-p.l1+.05, p.l2+p.l1-.05)# bounds on leg length
+    (amin, amax) = (p.l2-p.l1+.03, p.l2+p.l1-.03)# bounds on leg length
     (bmin, bmax) = (-pi/4.0, pi/4.0)       # bounds on leg angle
     mesh1 = range(amin,amax,length=nrows+1) # net over leg length
     mesh2 = range(bmin,bmax,length=ncols+1) # net over leg angle

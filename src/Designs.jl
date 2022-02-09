@@ -161,7 +161,7 @@ end
 function kinematic_constraints(p::Params{T}) where T<:Real
     Array{T}([
         -p.l1-p.l2+.25   # total link length lower bound
-        -p.l2+p.l1+.1    # minimum leg length upper bound
+        -p.l2+p.l1+.1    # minimum leg length lower bound
         p.y_hop + .08 - p.l1 - p.l2
         -p.y_hop + .08 - p.l1 + p.l2
         p.x_shake^2+p.y_shake^2 - p.l1^2-p.l2^2
