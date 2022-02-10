@@ -10,10 +10,10 @@ include("../HopperHandshake.jl") # reloading HopperHandshake.jl will trigger lot
 N = 100
 Random.seed!(42)
 random_samples = Designs.random_sample(N)
-for i=1:N
-    minf,minx,ret = Optimization.optimize_control(random_samples[:,i])
-    random_samples[15:end,i] = minx[:]
-end
+# for i=1:N
+#     minf,minx,ret = Optimization.optimize_control(random_samples[:,i])
+#     random_samples[15:end,i] = minx[:]
+# end
 random_hopper = map(i->Hopper.cost(random_samples[:,i]),1:N)
 random_handshake = map(i->Handshake.cost(random_samples[:,i]),1:N)
 
