@@ -145,14 +145,13 @@ const P = [1.0 0.0 0.0]
 Computes the template dynamics at the projection of (q,qdot)
 """
 function template_dynamics(q::Vector{T},qdot::Vector{T},p::Designs.Params) where T<:Real
-    lt = [0.23] # location of minimum spring potential in template projection
     ω = 4pi
     ζ = 0.01
     kt = ω^2
     bt = 2ζ*ω
     qt = (P*q)
     qtdot = (P*qdot)
-    return (-bt*qtdot-kt*(qt-[p.y_hop]))
+    return (-bt*qtdot-kt*(qt-[0.2]))
 end
 
 function minimum_norm_control(q::Vector{T},qdot::Vector{T},p::Designs.Params) where T<:Real
@@ -177,7 +176,7 @@ end
 function integration_mesh(p::Designs.Params)
     m=20
     # This integration net is in polar coordinates
-    (min, max) = (p.l2-p.l1+.03,p.l2+p.l1-.03)            # bounds on leg length
+    (min, max) = (.2-.06,0.2+.06)            # bounds on leg length
     return range(min,max,length=m+1)
 end
 
@@ -217,7 +216,7 @@ function cost(x::Vector{T}) where T<:Real
 end
 
 function cost_grad(x::Vector{T}) where T<:Real
-    cfg = GradientConfig(cost,x,Chunk{17}())
+    cfg = GradientConfig(cost,x,Chunk{14}())
     return gradient(cost,x,cfg)
 end
 
@@ -319,7 +318,7 @@ end
 
 function alternate_cost_grad(x::Vector{T},tf) where T<:Real
     f = x->alternate_cost(x,tf)
-    cfg = GradientConfig(f,x,Chunk{16}())
+    cfg = GradientConfig(f,x,Chunk{14}())
     return gradient(f,x,cfg)
 end
 

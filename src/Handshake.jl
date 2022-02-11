@@ -148,7 +148,7 @@ const P = [ 0.0 0.0 1.0 0.0
 # Computes the template dynamics at the projection of (q,qdot)
 # """
 function template_dynamics(q::Vector{T},qdot::Vector{T},p::Designs.Params) where T<:Real
-    lt = [p.x_shake,p.y_shake]
+    lt = [.2,-.05]
     ω = 2pi
     ζ = 0.5
     kt = ω^2
@@ -181,8 +181,8 @@ function integration_mesh(p::Designs.Params)
     nrows = 10
     ncols = 10
     # This integration net is in polar coordinates
-    (amin, amax) = (p.l2-p.l1+.03, p.l2+p.l1-.03)# bounds on leg length
-    (bmin, bmax) = (-pi/4.0, pi/4.0)       # bounds on leg angle
+    (amin, amax) = (0.2-.06, 0.2+.06)    # bounds on leg length
+    (bmin, bmax) = (-pi/4.0, pi/4.0)        # bounds on leg angle
     mesh1 = range(amin,amax,length=nrows+1) # net over leg length
     mesh2 = range(bmin,bmax,length=ncols+1) # net over leg angle
     return mesh1, mesh2
@@ -226,7 +226,7 @@ function cost(x::Vector{T}) where {T <: Real}
 end
 
 function cost_grad(x::Vector{T}) where {T<:Real}
-    cfg = GradientConfig(cost,x,Chunk{17}())
+    cfg = GradientConfig(cost,x,Chunk{14}())
     return gradient(cost,x,cfg)
 end
 
@@ -333,7 +333,7 @@ end
 
 function alternate_cost_grad(x::Vector{T},tf) where T<:Real
     f = x->alternate_cost(x,tf)
-    cfg = GradientConfig(f,x,Chunk{16}())
+    cfg = GradientConfig(f,x,Chunk{14}())
     return gradient(f,x,cfg)
 end
 

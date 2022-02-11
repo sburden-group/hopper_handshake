@@ -10,15 +10,11 @@ include("../HopperHandshake.jl") # reloading HopperHandshake.jl will trigger lot
 N = 100
 Random.seed!(42)
 random_samples = Designs.random_sample(N)
-# for i=1:N
-#     minf,minx,ret = Optimization.optimize_control(random_samples[:,i])
-#     random_samples[15:end,i] = minx[:]
-# end
 random_hopper = map(i->Hopper.cost(random_samples[:,i]),1:N)
 random_handshake = map(i->Handshake.cost(random_samples[:,i]),1:N)
 
 ## generate initial optimization solutions
-λ = 0.9
+λ = 0.95
 cost = map(i->λ*random_hopper[i]+(1-λ)*random_handshake[i],1:length(random_hopper))
 
 # sort by cost
@@ -36,7 +32,7 @@ xstar1 = minx
 θ1 = atan(Handshake.cost(xstar1)/Hopper.cost(xstar1))
 error,weight = Optimization.stationarity_test(minx;tol=1e-12)
 
-λ = 0.1
+λ = 0.05
 cost = map(i->λ*random_hopper[i]+(1-λ)*random_handshake[i],1:length(random_hopper))
 
 # sort by cost
@@ -58,25 +54,24 @@ f2(x) = Handshake.cost(x)               # the value of f2(x) will be constrained
 df2(x) = Handshake.cost_grad(x)
 
 N = 15                                  # number of iterations we will attempt
-sig = [1/(1+exp(-4x)) for x in range(-1,1,length=N)]
+sig = [1/(1+exp(-3x)) for x in range(-1,1,length=N)]
 θ = θ1 .+ (θ2-θ1)*sig
-x = zeros((length(minx),N+2))             
+x = zeros((length(minx),N))             
 x[:,1] = xstar1
-
+x0 = xstar1
 for i=1:N
     minf,minx,ret = Optimization.constraint_optimize(
                         f1,
                         df1,
                         f2,
                         df2,
-                        x[:,i],
+                        x0,
                         θ[i];
                         ftol_rel=1e-16,
                         maxtime=60.
                     )
-    x[:,i+1] = minx
+    x[:,i] = x0 = minx
 end
-x[:,end] = xstar2
 
 ##
 
@@ -101,7 +96,7 @@ using Plots
 cost_plot = scatter(hopper,handshake;label="pareto points")
 
 # plot the random samples
-idx = filter(i->random_hopper[i]<4 && random_handshake[i]<4, 1:length(random_hopper))
+idx = filter(i->random_hopper[i]<2 && random_handshake[i]<2, 1:length(random_hopper))
 scatter!(cost_plot,random_hopper[idx],random_handshake[idx];label="random samples",markershape=:cross)
 
 xlabel!(cost_plot,"Hopper cost")
