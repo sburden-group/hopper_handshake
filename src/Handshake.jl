@@ -148,7 +148,7 @@ const P = [ 0.0 0.0 1.0 0.0
 # Computes the template dynamics at the projection of (q,qdot)
 # """
 function template_dynamics(q::Vector{T},qdot::Vector{T},p::Designs.Params) where T<:Real
-    lt = [.2,-.05]
+    lt = [.2,-.1]
     ω = 2pi
     ζ = 0.5
     kt = ω^2

@@ -98,12 +98,13 @@ cost_plot = scatter(hopper,handshake;label="pareto points")
 # plot the random samples
 idx = filter(i->random_hopper[i]<2 && random_handshake[i]<2, 1:length(random_hopper))
 scatter!(cost_plot,random_hopper[idx],random_handshake[idx];label="random samples",markershape=:cross)
+scatter!(cost_plot,[Hopper.control_cost(Designs.default_params)], [Handshake.control_cost(Designs.default_params)]; label="minitaur leg without springs")
 
 xlabel!(cost_plot,"Hopper cost")
 ylabel!(cost_plot,"Handshake cost")
 
 ## Save all the data from this figure!
-columns = vcat("hopper","shaker",["x$(i)" for i=1:17]...)
+columns = vcat("hopper","shaker",["x$(i)" for i=1:14]...)
 df = DataFrame(hcat(hopper,handshake,x'),columns)
 CSV.write("pareto_front.csv", df)
 
@@ -111,14 +112,11 @@ CSV.write("pareto_front.csv", df)
 df = DataFrame(hcat(random_hopper,random_handshake,random_samples'),columns)
 CSV.write("random_samples.csv", df)
 
-# no spring designs
-nosprings = CSV.read("nospring_front.csv",DataFrame)
 
 ## select 3 different solutions to build
 p = [Designs.unpack(x[:,i]) for i=1:size(x,2)]
-idx = [1,9,17]
+idx = [1,8,15]
 scatter!(cost_plot,hopper[idx],handshake[idx];label="efficient samples",markershape=:star,markersize=7)
-scatter!(cost_plot,nosprings.hopper, nosprings.shaker; label="no-spring designs")
 savefig(cost_plot,"cost_plot")
 
 ## what data do I want to make note of?
