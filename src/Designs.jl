@@ -100,8 +100,8 @@ function bounds()
         0.05        # lower bound on compression spring wire diameter     
         0.5         # lower bound on compression spring index
         1.0         # lower bound on compression spring rest length, I hope this won't activate
-        0.5         # lower bound on proximal link length
-        1.0         # lower bound on distal link length
+        0.7         # lower bound on proximal link length
+        1.5
     ];
     upper_bound = [
         1.5         # upper bound on extension spring active coils
@@ -116,8 +116,8 @@ function bounds()
         1.6         # upper bound on compression spring wire diameter, likely won't activate     
         1.5         # upper bound on compression spring index, likely won't activate
         4.0         # upper bound on compression spring rest length, I hope this won't activate
-        1.5         # upper bound on proximal link length
-        3.0         # upper bound on distal link length
+        1.4
+        2.5
     ];
     
     return lower_bound, upper_bound
@@ -145,8 +145,8 @@ end
 
 function kinematic_constraints(p::Params{T}) where T<:Real
     Array{T}([
-        -p.l1-p.l2+.25   # total link length lower bound
-        p.l2-p.l1-.1     # minimum leg length upper bound
+        -p.l1-p.l2+.27   # total link length lower bound
+        p.l1-p.l2
     ])
 end
 

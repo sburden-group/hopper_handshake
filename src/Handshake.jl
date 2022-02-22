@@ -14,7 +14,7 @@ using Random: rand
 """
 BEGIN MODEL DEFINITION, DYNAMICS, CONTROL
 """
-const m = 1. # in this model, m is the payload mass at the effector
+const m = 1.0 # in this model, m is the payload mass at the effector
 const Jm = .5/2*(.087^2+.08^2) # rough approximation motor inertia from thick-walled cylinder model.
 
 # constants related to (unconstrained) statespace
@@ -140,26 +140,25 @@ function dynamics(q::Vector{T},qdot::Vector{T},u::Vector{T},p::Designs.Params) w
     return qddot,λ
 end
 
-# state projection map for the handshake behavior
-const P = [ 0.0 0.0 1.0 0.0
-            0.0 0.0 0.0 1.0]
-
-# """
-# Computes the template dynamics at the projection of (q,qdot)
-# """
-function template_dynamics(q::Vector{T},qdot::Vector{T},p::Designs.Params) where T<:Real
-    lt = [.2,-.1]
-    ω = 2pi
-    ζ = 0.5
-    kt = ω^2
-    bt = 2ζ*ω
-    qt = (P*q)
-    qtdot = (P*qdot)
-    return (-bt*qtdot-kt*(qt-lt))
+function anchor_projection(q::Vector{T},p::Designs.Params) where T<:Real
+    r = p.l2+p.l1
+    θ = -pi/8
+    return [q[3]-r*cos(θ),q[4]-r*sin(θ)]
 end
 
+"""
+Computes the template dynamics at the projection of (q,qdot)
+"""
+function template_dynamics(q::Vector{T},qdot::Vector{T}) where T<:Real
+    ω = 2pi
+    ζ = 0.75
+    return -2ζ*ω*qdot - ω^2 * q
+end
+
+
 function minimum_norm_control(q::Vector{T},qdot::Vector{T},p::Designs.Params) where T<:Real
-    target = template_dynamics(q,qdot,p)
+    P = jacobian(q->anchor_projection(q,p),q)
+    target = template_dynamics(anchor_projection(q,p),P*qdot)
     ∇V = potential_gradient(q,p)
     DA = A_jacobian(q,p)
     DAp = A_jacobian_prime(q,qdot,p)
@@ -181,8 +180,10 @@ function integration_mesh(p::Designs.Params)
     nrows = 10
     ncols = 10
     # This integration net is in polar coordinates
-    (amin, amax) = (0.2-.06, 0.2+.06)    # bounds on leg length
-    (bmin, bmax) = (-pi/4.0, pi/4.0)        # bounds on leg angle
+    r = p.l2+p.l1+.03
+    θ = -pi/8
+    (amin, amax) = (r-.06, r-.01)    # bounds on leg length
+    (bmin, bmax) = (θ-pi/8, θ+pi/8)        # bounds on leg angle
     mesh1 = range(amin,amax,length=nrows+1) # net over leg length
     mesh2 = range(bmin,bmax,length=ncols+1) # net over leg angle
     return mesh1, mesh2

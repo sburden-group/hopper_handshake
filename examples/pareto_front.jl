@@ -7,7 +7,7 @@ using Random
 include("../HopperHandshake.jl") # reloading HopperHandshake.jl will trigger lots of recompilation
 
 ## generate random samples
-N = 100
+N = 150
 Random.seed!(42)
 random_samples = Designs.random_sample(N)
 random_hopper = map(i->Hopper.cost(random_samples[:,i]),1:N)
@@ -96,7 +96,7 @@ using Plots
 cost_plot = scatter(hopper,handshake;label="pareto points")
 
 # plot the random samples
-idx = filter(i->random_hopper[i]<2 && random_handshake[i]<2, 1:length(random_hopper))
+idx = filter(i->random_hopper[i]<10 && random_handshake[i]<10, 1:length(random_hopper))
 scatter!(cost_plot,random_hopper[idx],random_handshake[idx];label="random samples",markershape=:cross)
 scatter!(cost_plot,[Hopper.control_cost(Designs.default_params)], [Handshake.control_cost(Designs.default_params)]; label="minitaur leg without springs")
 
@@ -190,10 +190,10 @@ columns = [
 ]
 
 spring_data = DataFrame(data,columns)
-# CSV.write("nominal_spring_data.csv",spring_data)
+CSV.write("nominal_spring_data.csv",spring_data)
 
 
 data = hcat(idx, s1_r, s2_r, l1, l2)
 columns = ["idx","s1 r", "s2 r", "l1", "l2"]
 geometry_data = DataFrame(data,columns)
-# CSV.write("geometry_data.csv",geometry_data)
+CSV.write("geometry_data.csv",geometry_data)

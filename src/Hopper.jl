@@ -141,21 +141,22 @@ end
 # state projection map for the hopping behavior
 const P = [1.0 0.0 0.0]
 
+function anchor_projection(q::Vector{T},p::Designs.Params) where T<:Real
+    return [q[1]-p.l1-p.l2-0.03]
+end
+
 """
 Computes the template dynamics at the projection of (q,qdot)
 """
-function template_dynamics(q::Vector{T},qdot::Vector{T},p::Designs.Params) where T<:Real
-    ω = 4pi
+function template_dynamics(q::Vector{T},qdot::Vector{T}) where T<:Real
+    ω = 5pi
     ζ = 0.01
-    kt = ω^2
-    bt = 2ζ*ω
-    qt = (P*q)
-    qtdot = (P*qdot)
-    return (-bt*qtdot-kt*(qt-[0.2]))
+    return -2ζ*ω*qdot - ω^2 * q - [9.81]
 end
 
 function minimum_norm_control(q::Vector{T},qdot::Vector{T},p::Designs.Params) where T<:Real
-    target = template_dynamics(q,qdot,p)
+    P = jacobian(q->anchor_projection(q,p),q)
+    target = template_dynamics(anchor_projection(q,p),P*qdot)
     ∇V = potential_gradient(q,p)
     DA = A_jacobian(q,p)
     DAp = A_jacobian_prime(q,qdot,p)
@@ -175,8 +176,7 @@ end
 
 function integration_mesh(p::Designs.Params)
     m=20
-    # This integration net is in polar coordinates
-    (min, max) = (.2-.06,0.2+.06)            # bounds on leg length
+    (min, max) = (p.l2-p.l1+.04,p.l2+p.l1+.02)
     return range(min,max,length=m+1)
 end
 
@@ -279,7 +279,7 @@ function sim_experiment(p)
     for y in y0
         q0 = coord_transform(y,p)
         qdot0 = zeros(3)
-        q,qdot,u,λ = sim_euler(q0,qdot0,1e-3,3000,p)
+        q,qdot,u,λ = sim_euler(q0,qdot0,1e-3,400,p)
         push!(cost, sum(u.*u)/size(u,2))
     end
     return cost
