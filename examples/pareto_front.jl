@@ -7,7 +7,7 @@ using Random
 include("../HopperHandshake.jl") # reloading HopperHandshake.jl will trigger lots of recompilation
 
 ## generate random samples
-N = 150
+N = 1000
 Random.seed!(42)
 random_samples = Designs.random_sample(N)
 random_hopper = map(i->Hopper.cost(random_samples[:,i]),1:N)
@@ -30,7 +30,7 @@ minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=1.,ftol_rel = 1e-16)
 minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=30.,ftol_rel = 1e-16)
 xstar1 = minx
 θ1 = atan(Handshake.cost(xstar1)/Hopper.cost(xstar1))
-error,weight = Optimization.stationarity_test(minx;tol=1e-12)
+error,weight = Optimization.stationarity_test(minx;tol=1e-9)
 
 λ = 0.05
 cost = map(i->λ*random_hopper[i]+(1-λ)*random_handshake[i],1:length(random_hopper))
@@ -45,7 +45,7 @@ x0 = random_samples[:,p[argmin(cost)]]
 minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=30.,ftol_rel = 1e-16)
 xstar2 = minx
 θ2 = atan(Handshake.cost(xstar2)/Hopper.cost(xstar2))
-error,weight = Optimization.stationarity_test(minx;tol=1e-12)
+error,weight = Optimization.stationarity_test(minx;tol=1e-9)
 
 ## optimization code
 f1(x) = Hopper.cost(x)                  # the value of f1(x) will be the optimization objective
@@ -53,29 +53,28 @@ df1(x) = Hopper.cost_grad(x)
 f2(x) = Handshake.cost(x)               # the value of f2(x) will be constrained
 df2(x) = Handshake.cost_grad(x)
 
-N = 15                                  # number of iterations we will attempt
-sig = [1/(1+exp(-3x)) for x in range(-1,1,length=N)]
+N = 20                                  # number of iterations we will attempt
+sig = [1/(1+exp(-4x)) for x in range(-1,1,length=N)]
 θ = θ1 .+ (θ2-θ1)*sig
+θ = .95 .- .9*sig
+# θ = range(.95,.05,length=N)
 x = zeros((length(minx),N))             
 x[:,1] = xstar1
 x0 = xstar1
 for i=1:N
-    minf,minx,ret = Optimization.constraint_optimize(
-                        f1,
-                        df1,
-                        f2,
-                        df2,
-                        x0,
-                        θ[i];
-                        ftol_rel=1e-16,
-                        maxtime=60.
-                    )
+    minf, minx, ret = Optimization.lsp_optimize(x0,θ[i];maxtime=30.,ftol_rel=1e-16)
     x[:,i] = x0 = minx
 end
 
 ##
+# evaluate errors to filter bad solutions
+stationarity = map(i->Optimization.stationarity_test(x[:,i];tol=1e-6),1:size(x,2))
+error = map(i->stationarity[i][1],1:length(stationarity))
+weight = map(i->stationarity[i][2],1:length(stationarity))
+# p = [i for i=1:size(x,2) if error[i] < 1.0]
+# x = x[:,p]
 
-# evaluate costs
+## evaluate costs
 hopper = map(i->Hopper.cost(x[:,i]),1:size(x,2))
 handshake = map(i->Handshake.cost(x[:,i]),1:size(x,2))
 
@@ -91,17 +90,21 @@ weight = map(i->stationarity[i][2],1:length(stationarity))
 
 # create a figure of the objective space
 using Plots
-
+titlefont = font(32,"Encode Sans")
+guidefont = font(24,"Encode Sans")
+tickfont = font(18,"Encode Sans")
+Plots.default(fontfamily="Encode Sans", legendfontsize=18,size=(800,600), titlefont=titlefont, xtickfont=tickfont, ytickfont=tickfont, guidefont=guidefont)
 # plot the pareto front
-cost_plot = scatter(hopper,handshake;label="pareto points")
+cost_plot = scatter(hopper,handshake;label="pareto efficient designs",markersize=5)
 
 # plot the random samples
-idx = filter(i->random_hopper[i]<10 && random_handshake[i]<10, 1:length(random_hopper))
-scatter!(cost_plot,random_hopper[idx],random_handshake[idx];label="random samples",markershape=:cross)
-scatter!(cost_plot,[Hopper.control_cost(Designs.default_params)], [Handshake.control_cost(Designs.default_params)]; label="minitaur leg without springs")
+idx = filter(i->random_hopper[i]<600 && random_handshake[i]<600, 1:length(random_hopper))
+scatter!(cost_plot,random_hopper[idx],random_handshake[idx];label="random designs",markershape=:cross,markersize=7)
+scatter!(cost_plot,[Hopper.control_cost(Designs.default_params)], [Handshake.control_cost(Designs.default_params)]; label="manipulator w/o springs",markersize=7,markershape=:star)
 
-xlabel!(cost_plot,"Hopper cost")
-ylabel!(cost_plot,"Handshake cost")
+title!(cost_plot, "Bi-objective Behavior Costs")
+xlabel!(cost_plot,"Hopping Cost")
+ylabel!(cost_plot,"Weight Lifting Cost")
 
 ## Save all the data from this figure!
 columns = vcat("hopper","shaker",["x$(i)" for i=1:14]...)
@@ -115,7 +118,7 @@ CSV.write("random_samples.csv", df)
 
 ## select 3 different solutions to build
 p = [Designs.unpack(x[:,i]) for i=1:size(x,2)]
-idx = [1,8,15]
+idx = [1,5,13]
 scatter!(cost_plot,hopper[idx],handshake[idx];label="efficient samples",markershape=:star,markersize=7)
 savefig(cost_plot,"cost_plot")
 
