@@ -7,7 +7,7 @@ using Random
 include("../HopperHandshake.jl") # reloading HopperHandshake.jl will trigger lots of recompilation
 
 ## generate random samples
-N = 1000
+N = 100
 Random.seed!(42)
 random_samples = Designs.random_sample(N)
 random_hopper = map(i->Hopper.cost(random_samples[:,i]),1:N)
@@ -27,7 +27,7 @@ x0 = random_samples[:,p[argmin(cost)]]
 minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=1.,ftol_rel = 1e-16)
 
 # next we attempt to solve the scalarization problem
-minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=30.,ftol_rel = 1e-16)
+minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=60.,ftol_rel = 1e-16)
 xstar1 = minx
 θ1 = atan(Handshake.cost(xstar1)/Hopper.cost(xstar1))
 error,weight = Optimization.stationarity_test(minx;tol=1e-9)
@@ -42,39 +42,29 @@ p = sortperm(cost)
 x0 = random_samples[:,p[argmin(cost)]]
 
 # next we attempt to solve the scalarization problem
-minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=30.,ftol_rel = 1e-16)
+minf, minx, ret = Optimization.lsp_optimize(x0,λ;maxtime=60.,ftol_rel = 1e-16)
 xstar2 = minx
 θ2 = atan(Handshake.cost(xstar2)/Hopper.cost(xstar2))
 error,weight = Optimization.stationarity_test(minx;tol=1e-9)
 
 ## optimization code
-f1(x) = Hopper.cost(x)                  # the value of f1(x) will be the optimization objective
-df1(x) = Hopper.cost_grad(x)
-f2(x) = Handshake.cost(x)               # the value of f2(x) will be constrained
-df2(x) = Handshake.cost_grad(x)
-
-N = 20                                  # number of iterations we will attempt
-sig = [1/(1+exp(-4x)) for x in range(-1,1,length=N)]
-θ = θ1 .+ (θ2-θ1)*sig
-θ = .95 .- .9*sig
-# θ = range(.95,.05,length=N)
+N = 15                                  # number of iterations we will attempt
+λ = range(.95,.05,length=N)
 x = zeros((length(minx),N))             
 x[:,1] = xstar1
 x0 = xstar1
 for i=1:N
-    minf, minx, ret = Optimization.lsp_optimize(x0,θ[i];maxtime=30.,ftol_rel=1e-16)
+    minf, minx, ret = Optimization.lsp_optimize(x0,λ[i];maxtime=30.,ftol_rel=1e-16)
+    print(ret); print("\n")
     x[:,i] = x0 = minx
 end
 
 ##
-# evaluate errors to filter bad solutions
 stationarity = map(i->Optimization.stationarity_test(x[:,i];tol=1e-6),1:size(x,2))
 error = map(i->stationarity[i][1],1:length(stationarity))
 weight = map(i->stationarity[i][2],1:length(stationarity))
-# p = [i for i=1:size(x,2) if error[i] < 1.0]
-# x = x[:,p]
 
-## evaluate costs
+# evaluate costs
 hopper = map(i->Hopper.cost(x[:,i]),1:size(x,2))
 handshake = map(i->Handshake.cost(x[:,i]),1:size(x,2))
 
@@ -115,10 +105,9 @@ CSV.write("pareto_front.csv", df)
 df = DataFrame(hcat(random_hopper,random_handshake,random_samples'),columns)
 CSV.write("random_samples.csv", df)
 
-
 ## select 3 different solutions to build
 p = [Designs.unpack(x[:,i]) for i=1:size(x,2)]
-idx = [1,5,13]
+idx = [1,7,15]
 scatter!(cost_plot,hopper[idx],handshake[idx];label="efficient samples",markershape=:star,markersize=7)
 savefig(cost_plot,"cost_plot")
 

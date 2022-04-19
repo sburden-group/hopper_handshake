@@ -225,7 +225,7 @@ end
 
 function integration_mesh()
     N = 5
-    y0 = range(-0.13,-2g/ω_stance^2-.05,length=N)
+    y0 = range(-0.13,-2g/ω_stance^2-.005,length=N)
     return y0
 end
 
@@ -272,19 +272,23 @@ function trajectory_cost(idx::Int, p::Designs.Params)
     t_stance = template_trajectories.t_stance[idx,:]
     t_flight = template_trajectories.t_flight[idx,:]
     # calculate control cost during stance
-    thermal_loss = zeros(eltype(p.l1),length(t_stance))
+    # thermal_loss = zeros(eltype(p.l1),length(t_stance))
+    loss = zeros(eltype(p.l1),length(t_stance))
     for i=1:length(t_stance)
         q,qdot = template_immersion(stance_state[:,i]...,p) 
         u = stance_control(q,qdot,p)
-        thermal_loss[i] = sum(R*(u/Ke).^2)
+        # thermal_loss[i] = sum(R*(u/Ke).^2)
+        loss[i] = sum(R*(u/Ke).^2) + sum(u.*qdot[[2,3]])
     end
-    stance_cost = trapz(t_stance,thermal_loss)
+    # stance_cost = trapz(t_stance,thermal_loss)
+    stance_cost = trapz(t_stance, loss)
     # calculate control cost during flight
     y = p.l1+p.l2+foot_offset-.01
     q,qdot = template_immersion(y,typeof(y)(0.),p)
     u = flight_control(q,qdot,p)
     flight_cost = sum(R*(u/Ke).^2)*(t_flight[end]-t_flight[1])
-    return stance_cost+flight_cost
+    T = t_stance[end]-t_stance[1]+t_flight[end]-t_flight[1]
+    return (stance_cost+flight_cost)/T
 end
 
 function control_cost(p::Designs.Params)
@@ -362,13 +366,17 @@ during those trajectories, and return the result.
 """
 
 function sim_experiment(p)
-    y0 = integration_mesh(p)
+    state = template_trajectories.stance_state
+    x0 = [state[i,1,1] for i=1:size(state,1)]
+    xdot0 = [state[i,1,2] for i=1:size(state,1)]
     cost = []
     for y in y0
         q0 = coord_transform(y,p)
         qdot0 = zeros(3)
         q,qdot,u,λ = sim_euler(q0,qdot0,1e-3,400,p)
         push!(cost, sum(u.*u)/size(u,2))
+    end
+    for i=1:length(x0)
     end
     return cost
 end

@@ -95,7 +95,7 @@ function bounds()
         0.04
         0.05
         0.5
-        -3pi/4
+        pi/2
         0.04        # lower bound on compression spring active coils
         0.05        # lower bound on compression spring wire diameter     
         0.5         # lower bound on compression spring index
@@ -111,7 +111,7 @@ function bounds()
         1.5
         1.6
         1.5
-        -pi/2
+        3pi/4
         1.5         # upper bound on compression spring active coils, likely won't activate
         1.6         # upper bound on compression spring wire diameter, likely won't activate     
         1.5         # upper bound on compression spring index, likely won't activate

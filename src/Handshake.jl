@@ -10,6 +10,7 @@ using ForwardDiff: gradient, GradientConfig
 using ForwardDiff: hessian, HessianConfig, Chunk
 using LinearAlgebra
 using Random: rand
+using Trapz
 
 """
 BEGIN MODEL DEFINITION, DYNAMICS, CONTROL
@@ -40,7 +41,7 @@ const g = 9.81
 
 # template constants
 const ω = 2pi
-const ζ = 0.5
+const ζ = 1.0
 
 # kinematics
 function hip_foot_angle(q::Vector{T}) where {T <: Real}
@@ -103,7 +104,8 @@ end
 # kinematic constraint on configuration due to foot contact at (0,0)
 function constraints(q::Vector{T},p::Designs.Params) where T<:Real
     θ = hip_foot_angle(q)
-    l = leg_length(q,p)
+    ϕ = interior_leg_angle(q)
+    l = leg_length(ϕ,p)
     return [q[xf_idx]-l*cos(θ),q[yf_idx]-l*sin(θ)]
 end
 
@@ -116,9 +118,9 @@ end
 
 function constraints_hess(q::Vector{T},p::Designs.Params) where {T<:Real}
     rows = 2 # number of constraint equations
-    f(x) = A_jacobian(x,p)
+    f(x) = constraints_jac(x,p)
     cfg = JacobianConfig(f, q, Chunk{n}())
-    reshape(jacobian(f,q,cfg)*qdot,rows,n)
+    jacobian(f,q,cfg)
 end
 
 # input force map ( is actually constant in this model )
@@ -159,7 +161,8 @@ function dynamics(q::Vector{T},qdot::Vector{T},u::Vector{T},p::Designs.Params) w
 end
 
 function anchor_projection(q::Vector{T},p::Designs.Params) where T<:Real
-    req = p.l2+p.l1+foot_offset-.01
+    ϕeq = pi/8
+    req = leg_length(ϕeq,p)
     θeq = -pi/8
     return [q[3]-req*cos(θeq),q[4]-req*sin(θeq)]
 end
@@ -173,8 +176,6 @@ end
 Computes the template dynamics at the projection of (q,qdot)
 """
 function template_dynamics(q::Vector{T},qdot::Vector{T}) where T<:Real
-    ω = 2pi
-    ζ = 0.75
     return -2ζ*ω*qdot - ω^2 * q
 end
 
@@ -192,110 +193,138 @@ function control(q::Vector{T},qdot::Vector{T},p::Designs.Params) where T<:Real
         hcat(dπ,zeros(size(dπ,1),m),zeros(size(dπ,1),size(G,2)))
     )
     b = vcat(
-        -∇V+F
-        -ddtDA*qdot
+        -∇V+F,
+        -ddtDA*qdot,
+        f
     )
     return (A\b)[end-1:end] 
 end
 
-function integration_mesh()
-    N = 4
-    M = 4
-    r0 = range(
 
-    )
-    θ0 = range()
-    return r0,θ0
-end
+# function coord_transform(r::T,θ::T,p::Designs.Params) where T<:R
+    
+# end
 
-function coord_transform(r::T,θ::T) where T<:Real
-    translation = [-.12,0.]
-    [r*cos(θ),r*sin(θ)]+translation
-end
+# function coord_transform_jac(r::T,θ::T) where T<:Real
+#     jacobian(x->coord_transform(x...,p),[r,θ])
+# end
 
-function coord_transform_jac(r::T,θ::T) where T<:Real
-    jacobian(x->coord_transform(x...),[r,θ])
-end
+# function template_trajs(p::Designs.Params)
+#     r0,θ0 = integration_mesh(p)
+#     N = length(r0)
+#     M = length(θ0)
+    
+#     # x,y = integration_mesh()
+#     # N = length(x)
+#     # M = length(y)
+#     A = [0. 0. 1. 0.
+#         0. 0. 0. 1.
+#         -ω^2 0. -2ζ*ω 0.
+#         0. -ω^2 0. -2ζ*ω]
+#     flow = (x,t)->exp(A*t)*x
+#     state = zeros((N,M,size(A,1),2N*M))
+#     t = Array(range(0.,5/(ζ*ω),length=2N*M)) 
+#     for i=1:N
+#         for j=1:M
+#             # x0 = vcat(coord_transform(r0[i],θ0[j]),zeros(2))
+#             # x0 = vcat([x[i],y[j],0.,0.])
+#             x0 = 
+#             state[i,j,:,:] = reduce(hcat,map(t->flow(x0,t),t))
+#         end
+#     end
+#     return (state=state,t=t)
+# end
 
-function template_trajs()
-    r0,θ0 = integration_mesh()
-    N = length(r0)
-    M = length(θ0)
-    A = [0. 0. 1. 0.
-        0. 0. 0. 1.
-        -ω^2 -2ζ*ω, 0. 0.
-        0. 0. -ω^2 -2ζ*ω]
-    flow = (x,t)->exp(A*t)*x
-    state = zeros((N,M,size(A,1),2N*M))
-    t = Array(range(0.,5/(ζ*ω),length=2N*M)) 
-    for i=1:N
-        for j=1:M
-            x0 = coord_transform(r0[i],θ0[j])
-            state[i,j,:,:] = reduce(hcat,map(t->flow(x0,t),t))
-        end
-    end
-    return (state=state,t=t)
-end
+# # template_trajectories = template_trajs()
 
-function template_immersion(x::Vector{T},xdot::Vector{T},p::Designs.Params) where T<:Real
-    f = q->vcat(constraints(q,p),anchor_projection(q,p)-x)
-    df = q->vcat(constraints_jac(q,p),anchor_purshforward(q,p))
-    q_guess = [pi/4,pi/4,leg_length(pi/4,p),0.]
-    q = nlsolve(f,df,q_guess).zero
-    DA = constraints_jac(q,p)
-    Dπ = anchor_pushforward(q,p)
-    qdot = vcat(DA,Dπ)\vcat(zeros(size(DA,1)),xdot)
-    return q,qdot
-end
-
-# function integration_mesh(p::Designs.Params)
-#     nrows = 10
-#     ncols = 10
-#     # This integration net is in polar coordinates
-#     r = p.l2+p.l1+.03
-#     θ = -pi/8
-#     (amin, amax) = (r-.06, r-.01)    # bounds on leg length
-#     (bmin, bmax) = (θ-pi/8, θ+pi/8)        # bounds on leg angle
-#     mesh1 = range(amin,amax,length=nrows+1) # net over leg length
-#     mesh2 = range(bmin,bmax,length=ncols+1) # net over leg angle
-#     return mesh1, mesh2
+# function template_immersion(x::Vector{T},xdot::Vector{T},p::Designs.Params) where T<:Real
+#     f = q->vcat(constraints(q,p),anchor_projection(q,p)-x)
+#     df = q->vcat(constraints_jac(q,p),anchor_pushforward(q,p))
+#     q_guess = [pi/4,pi/4,leg_length(pi/4,p),0.]
+#     q = nlsolve(f,df,q_guess).zero # this solve is failing sometimes
+#     # need to use my brain to make its job easier
+#     # req = p.l2+p.l1
+#     # θeq = -pi/8
+#     # qfoot = [req*cos(θeq),req*sin(θeq)]+x
+#     # qjoints = nlsolve(θ->constraints(vcat(θ,qfoot),p),[pi/2,pi/2]).zero
+#     # q = vcat(qjoints, qfoot)
+#     DA = constraints_jac(q,p)
+#     Dπ = anchor_pushforward(q,p)
+#     qdot = vcat(DA,Dπ)\vcat(zeros(size(DA,1)),xdot)
+#     return q,qdot
 # end
 
 
-function coord_transform(r::T,θmean::T, p::Designs.Params) where T<:Real
-    xf = r*cos(θmean)
-    yf = r*sin(θmean)
-    f(θ)=constraints(vcat(θ,xf,yf),p)
-    θ = Array{T}(nlsolve(f,Array{T}([θmean+pi/4,θmean-pi/4]);ftol=1e-6).zero)
-    return vcat(θ,xf,yf)
+# function trajectory_cost(i::Int,j::Int,p::Designs.Params)
+#     state = template_trajectories.state[i,j,:,:]
+#     t = template_trajectories.t
+#     # thermal_loss = zeros(eltype(p.l1),length(t))
+#     loss = zeros(eltype(p.l1),length(t))
+#     for k=1:length(t)
+#         x = state[1:2,k]
+#         xdot = state[3:4,k]
+#         q,qdot = template_immersion(x,xdot,p)
+#         # print(constraints(q,p))
+#         # print("\n")
+#         # print(constraints_jac(q,p)*qdot)
+#         # print("\n")
+#         if norm(constraints(q,p))>1e-3
+#             print("oops\n")
+#             print(i); print(","); print(j)
+#             print("\n")
+#         end
+#         u = control(q,qdot,p)
+#         # thermal_loss[k] = sum(R*(u/Ke).^2) 
+#         loss[k] = sum(R*(u/Ke).^2) + sum(u.*qdot[[1,2]])
+#     end
+#     T = t[end]-t[1]
+#     # return trapz(t,thermal_loss)/T
+#     return trapz(t,loss)/T
+# end
+
+function integration_mesh(p::Designs.Params)
+    N = 4
+    M = 4
+    r = range(leg_length(pi/2,p),leg_length(pi/8,p),length=N)
+    θ = range(-pi/4,0.,length=M)
+    return r,θ
 end
 
-function smooth_abs(x::T,α::Float64) where T<:Real
-    abs(x)+ 2/α * log(1+exp(-α*abs(x)))-2*log(2)/α
+function template_immersion(y::Array{T},ydot::Array{T},p::Designs.Params) where T<:Real
+    f = q->vcat(constraints(q,p),anchor_projection(q,p)-y)
+    df = q->vcat(constraints_jac(q,p),anchor_pushforward(q,p))
+    q_guess = Array{T}([pi/4,pi/4,leg_length(pi/4,p),0.])
+    q = nlsolve(f,df,q_guess).zero # this solve is failing sometimes
+    DA = constraints_jac(q,p)
+    Dπ = anchor_pushforward(q,p)
+    qdot = vcat(DA,Dπ)\vcat(zeros(size(DA,1)),ydot)
+    return q,qdot
+end
+
+function trajectory_cost(r,θ,p::Designs.Params)
+    t = range(0,5/(ζ*ω),length=10)
+    # template initial conditions
+    y0 = vcat(anchor_projection([0.,0.,r*cos(θ),r*sin(θ)],p),zeros(2))
+    # template trajectory 
+    A = [0. 0. 1. 0.
+        0. 0. 0. 1.
+        -ω^2 0. -2ζ*ω 0.
+        0. -ω^2 0. -2ζ*ω]
+    flow = (y,t)->exp(A*t)*y
+    y = map(t->flow(y0,t),t)
+    # immerse, compute control, etc
+    state = map(y->template_immersion(y[1:2],y[3:4],p),y)
+    u = map(state->control(state...,p),state)
+    loss = map(i->sum(R*(u[i]/Ke).^2+u[i].*state[i][2][[1,2]]),1:length(u))
+    return trapz(t,loss)/(t[end]-t[1])
 end
 
 function control_cost(p::Designs.Params)
-    T = eltype(p.l1)
-    mesh1, mesh2 = integration_mesh(p)
-    cost = 0.0
-    q = zeros(T,n)
-    qdot = zeros(T,n)
-    for i = 1:length(mesh1)-1
-        for j = 1:length(mesh2)-1
-            a = [mesh1[i],mesh2[j]]
-            b = [mesh1[i+1],mesh2[j+1]]
-            cell_volume = abs(prod(b-a))
-            midpoint = Array{T}((a+b)/2)
-            q = coord_transform(midpoint..., p) 
-            u = minimum_norm_control(q,qdot,p)
-            # cost += norm(u,2)*cell_volume
-            # cost += sum(smooth_abs.(u,20.))*cell_volume
-            cost += (R*norm(u/Ke,2)^2)*cell_volume
-        end
-    end
-    a = [mesh1[1],mesh2[1]]; b = [mesh1[end],mesh2[end]];
-    volume = abs(prod(b-a))
-    return cost / volume
+    r,θ = integration_mesh(p)
+    i = 1:length(r)
+    j = 1:length(θ)
+    costs = [trajectory_cost(r[i],θ[j],p) for i in i, j in j]
+    trapz((r,θ),costs)/((r[end]-r[1])*(θ[end]-θ[1]))
 end
 
 """ BEGIN OPTIMIZATION CODE """ 
