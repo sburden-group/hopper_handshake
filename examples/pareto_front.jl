@@ -107,7 +107,7 @@ CSV.write("random_samples.csv", df)
 
 ## select 3 different solutions to build
 p = [Designs.unpack(x[:,i]) for i=1:size(x,2)]
-idx = [1,7,15]
+idx = [1,10,15]
 scatter!(cost_plot,hopper[idx],handshake[idx];label="efficient samples",markershape=:star,markersize=7)
 savefig(cost_plot,"cost_plot")
 
